@@ -290,9 +290,9 @@ dependencies {
 
     if (REACT_NATIVE_VERSION < 71) {
       //noinspection GradleDynamicVersion
-      extractHeaders("com.facebook.fbjni:fbjni:0.4.0:headers")
+      extractHeaders("com.facebook.fbjni:fbjni:0.5.1:headers")
       //noinspection GradleDynamicVersion
-      extractJNI("com.facebook.fbjni:fbjni:0.4.0")
+      extractJNI("com.facebook.fbjni:fbjni:0.5.1")
 
       def rnAarMatcher = "**/react-native/**/*${resolveBuildType()}.aar"
       if (REACT_NATIVE_VERSION < 69) {
