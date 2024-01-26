@@ -46,4 +46,6 @@ export interface Frame {
    * ```
    */
   close(): void;
+  
+  getLumaValue(): number;
 }

@@ -172,6 +172,13 @@ class CameraViewManager(reactContext: ReactApplicationContext) : ViewGroupManage
     view.orientation = orientation
   }
 
+ @ReactProp(name = "videoStabilizationMode")
+  fun setVideoStabilizationMode(view: CameraView, videoStabilizationMode: String) {
+    if (view.videoStabilizationMode != videoStabilizationMode)
+      addChangedPropToTransaction(view, "videoStabilizationMode")
+    view.videoStabilizationMode = videoStabilizationMode
+  }
+
   companion object {
     const val TAG = "CameraView"
 

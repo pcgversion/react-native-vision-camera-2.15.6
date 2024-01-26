@@ -7,6 +7,7 @@ import androidx.annotation.Keep;
 import androidx.camera.core.ImageProxy;
 import com.facebook.proguard.annotations.DoNotStrip;
 
+import java.nio.ByteBuffer;
 @SuppressWarnings("unused") // used through JNI
 @DoNotStrip
 @Keep
@@ -38,5 +39,25 @@ public class ImageProxyUtils {
     @Keep
     public static int getBytesPerRow(ImageProxy imageProxy) {
         return imageProxy.getPlanes()[0].getRowStride();
+    }
+    @DoNotStrip
+    @Keep
+    public static int getLumaValue(ImageProxy imageProxy) {
+        java.nio.ByteBuffer buffer = imageProxy.getPlanes()[0].getBuffer();
+        byte[] data = toByteArray(buffer);
+        int total = 0;
+        for (byte datum : data) {
+            total += (int) datum & 0xFF;
+        }
+        int lumaValue = total / data.length;
+        return lumaValue;
+    }
+    @DoNotStrip
+    @Keep
+    public static byte[] toByteArray(ByteBuffer byteBuffer) {
+        byteBuffer.rewind(); // Rewind the buffer to zero
+        byte[] data = new byte[byteBuffer.remaining()];
+        byteBuffer.get(data); // Copy the buffer into a byte array
+        return data; // Return the byte array
     }
 }
