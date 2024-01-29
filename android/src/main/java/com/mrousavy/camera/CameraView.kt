@@ -106,7 +106,7 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
   var tempTorch: String?  = "off"
   var autoTorch = false
   var lightValueMin = 10
-  var lightValueMax = 250
+  var lightValueMax = 200
   var brightness = 250 //default
   var frameCounter = 0
   var zoom: Float = 1f // in "factor"
