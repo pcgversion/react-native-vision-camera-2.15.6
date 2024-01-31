@@ -105,8 +105,8 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
   var torch: String? = "off"
   var tempTorch: String?  = "off"
   var autoTorch = false
-  var lightValueMin = 10
-  var lightValueMax = 200
+  var lightValueMin = 11
+  var lightValueMax = 100
   var brightness = 250 //default
   var frameCounter = 0
   var zoom: Float = 1f // in "factor"
@@ -572,7 +572,7 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
               //allow to settle down sensor for light
               //Log.i(TAG, "Lightlevel:${lightLevel},  min:${lightValueMin}, max:${lightValueMax}")
               
-              if(autoTorch && frameCounter>=30){
+              if(autoTorch && frameCounter>=10){
               
                 if(lightLevel <= lightValueMin && tempTorch == "off"){
                       tempTorch = "on"
