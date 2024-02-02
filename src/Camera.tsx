@@ -453,7 +453,11 @@ export class Camera extends React.PureComponent<CameraProps> {
       this.lastFrameProcessor = this.props.frameProcessor;
     }
   }
-
+  componentDidMount(): void {
+    DeviceEventEmitter.addListener('brightnessEvent', function (e) {
+      // handle event and you will get a value in event object, you can log it here
+    });
+  }
   /** @internal */
   componentDidUpdate(): void {
     if (!this.isNativeViewMounted) return;
