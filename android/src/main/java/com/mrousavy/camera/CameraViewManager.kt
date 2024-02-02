@@ -179,6 +179,27 @@ class CameraViewManager(reactContext: ReactApplicationContext) : ViewGroupManage
     view.videoStabilizationMode = videoStabilizationMode
   }
 
+  @ReactProp(name = "brightness")
+  fun setBrightness(view: CameraView, brightness: Int) {
+    if (view.brightness != brightness)
+      addChangedPropToTransaction(view, "brightness")
+    view.brightness = brightness
+  }
+
+  @ReactProp(name = "minLightValue")
+  fun setMinLightValue(view: CameraView, minLightValue: Int) {
+    if (view.minLightValue != minLightValue)
+      addChangedPropToTransaction(view, "minLightValue")
+    view.minLightValue = minLightValue
+  }
+
+  @ReactProp(name = "maxLightValue")
+  fun setMaxLightValue(view: CameraView, maxLightValue: Int) {
+    if (view.maxLightValue != maxLightValue)
+      addChangedPropToTransaction(view, "maxLightValue")
+    view.maxLightValue = maxLightValue
+  }
+
   companion object {
     const val TAG = "CameraView"
 

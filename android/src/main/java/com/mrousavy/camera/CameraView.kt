@@ -42,6 +42,13 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.modules.core.DeviceEventManagerModule
+
 //
 // TODOs for the CameraView which are currently too hard to implement either because of CameraX' limitations, or my brain capacity.
 //
@@ -77,7 +84,7 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
     const val TAG = "CameraView"
     const val TAG_PERF = "CameraView.performance"
 
-    private val propsThatRequireSessionReconfiguration = arrayListOf("cameraId", "format", "fps", "hdr", "lowLightBoost", "photo", "video", "enableFrameProcessor","torch", "tempTorch")
+    private val propsThatRequireSessionReconfiguration = arrayListOf("cameraId", "format", "fps", "hdr", "lowLightBoost", "photo", "video", "enableFrameProcessor","torch", "tempTorch", "brightness","minLightValue","maxLightValue")
     private val arrayListOfZoom = arrayListOf("zoom")
   }
 
@@ -105,9 +112,18 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
   var torch: String? = "off"
   var tempTorch: String?  = "off"
   var autoTorch = false
-  var lightValueMin = 11
-  var lightValueMax = 100
+  var minLightValue = 11
+     set(value) {
+      field = value
+     }
+  var maxLightValue = 100
+    set(value) {
+      field = value
+     }
   var brightness = 250 //default
+    set(value) {
+      field = value
+     }
   var frameCounter = 0
   var zoom: Float = 1f // in "factor"
   var orientation: String? = null
@@ -570,17 +586,17 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
 
               //auto torch enable/disabled based on the light value and frameCounter so can skip some frame
               //allow to settle down sensor for light
-              //Log.i(TAG, "Lightlevel:${lightLevel},  min:${lightValueMin}, max:${lightValueMax}")
+              //Log.i(TAG, "Lightlevel:${lightLevel},  min:${minLightValue}, max:${maxLightValue}, brightness:${brightness}")
               
               if(autoTorch && frameCounter>=10){
-              
-                if(lightLevel <= lightValueMin && tempTorch == "off"){
+
+                if(lightLevel <= minLightValue && tempTorch == "off"){
                       tempTorch = "on"
                       update(arrayListOf("tempTorch","isActive"))
                       frameCounter = 0
                 }
                 
-                if(lightLevel > lightValueMax && tempTorch == "on"){
+                if(lightLevel > maxLightValue && tempTorch == "on"){
                       tempTorch = "off"
                       update(arrayListOf("tempTorch","isActive"))
                       frameCounter = 0
@@ -676,9 +692,15 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
         
         //sensor sensitivity information ISO
         var s = result.get(CaptureResult.SENSOR_SENSITIVITY)!!.toDouble() 
-
         //light level calculation based on measured brightness in luminance/(t*s)
         lightLevel = (brightness.toDouble() / (t * s)).toInt()
+        try{
+          reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("brightnessEvent", lightLevel)
+        } catch (e: Throwable){
+          Log.e(TAG,"Exception in brightness event: ${e.message}")
+        }
+        
+        
       }
   }
 

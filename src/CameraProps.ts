@@ -209,4 +209,10 @@ export interface CameraProps extends ViewProps {
    */
   frameProcessorFps?: number | 'auto';
   //#endregion
+  //for auto torch calculation of light level based on the brightness constant day value = 250
+  brightness?: number;
+  //min light value, if light level goes below this value it will turn on mobile torch on automatically if auto torch is on
+  minLightValue?: number;
+  //max light value, if light level goes above this value it will turn off mobile torch on automatically if auto torch is on
+  maxLightValue?: number;
 }
