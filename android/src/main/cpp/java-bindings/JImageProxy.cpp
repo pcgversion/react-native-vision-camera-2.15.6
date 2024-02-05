@@ -45,6 +45,11 @@ int JImageProxy::getBytesPerRow() const {
   return getBytesPerRowMethod(utilsClass, self());
 }
 
+int JImageProxy::getLumaValue() const {
+  auto utilsClass = getUtilsClass();
+  static const auto getLumaValueMethod = utilsClass->getStaticMethod<jint(JImageProxy::javaobject)>("getLumaValue");
+  return getLumaValueMethod(utilsClass, self());
+}
 void JImageProxy::close() {
   static const auto closeMethod = getClass()->getMethod<void()>("close");
   closeMethod(self());

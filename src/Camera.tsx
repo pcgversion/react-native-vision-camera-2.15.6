@@ -1,5 +1,5 @@
 import React from 'react';
-import { requireNativeComponent, NativeModules, NativeSyntheticEvent, findNodeHandle, NativeMethods, Platform } from 'react-native';
+import { requireNativeComponent, NativeModules, NativeSyntheticEvent, findNodeHandle, NativeMethods, Platform, DeviceEventEmitter } from 'react-native';
 import type { FrameProcessorPerformanceSuggestion, VideoFileType } from '.';
 import type { CameraDevice } from './CameraDevice';
 import type { ErrorWithCause } from './CameraError';
@@ -453,7 +453,11 @@ export class Camera extends React.PureComponent<CameraProps> {
       this.lastFrameProcessor = this.props.frameProcessor;
     }
   }
-
+  componentDidMount(): void {
+    DeviceEventEmitter.addListener('brightnessEvent', function (e) {
+      // handle event and you will get a value in event object, you can log it here
+    });
+  }
   /** @internal */
   componentDidUpdate(): void {
     if (!this.isNativeViewMounted) return;

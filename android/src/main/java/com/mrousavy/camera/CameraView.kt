@@ -6,12 +6,16 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.hardware.camera2.*
+import android.hardware.camera2.CaptureResult
 import android.util.Log
 import android.util.Range
+import android.util.Size
 import android.view.*
 import android.view.View.OnTouchListener
 import android.widget.FrameLayout
 import androidx.camera.camera2.interop.Camera2Interop
+import android.hardware.camera2.CameraCaptureSession.CaptureCallback
+import android.hardware.camera2.CameraCharacteristics
 import androidx.camera.core.*
 import androidx.camera.core.impl.*
 import androidx.camera.extensions.*
@@ -33,9 +37,17 @@ import kotlinx.coroutines.guava.await
 import java.lang.IllegalArgumentException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.nio.ByteBuffer
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.modules.core.DeviceEventManagerModule
 
 //
 // TODOs for the CameraView which are currently too hard to implement either because of CameraX' limitations, or my brain capacity.
@@ -72,7 +84,7 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
     const val TAG = "CameraView"
     const val TAG_PERF = "CameraView.performance"
 
-    private val propsThatRequireSessionReconfiguration = arrayListOf("cameraId", "format", "fps", "hdr", "lowLightBoost", "photo", "video", "enableFrameProcessor")
+    private val propsThatRequireSessionReconfiguration = arrayListOf("cameraId", "format", "fps", "hdr", "lowLightBoost", "photo", "video", "enableFrameProcessor","torch", "tempTorch", "brightness","minLightValue","maxLightValue")
     private val arrayListOfZoom = arrayListOf("zoom")
   }
 
@@ -81,6 +93,8 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
   var cameraId: String? = null // this is actually not a react prop directly, but the result of setting device={}
   var enableDepthData = false
   var enableHighQualityPhotos: Boolean? = null
+  var supportVideoStabilization: Boolean? = false
+  var supportCinematicVideoStabilization: Boolean? = false
   var enablePortraitEffectsMatteDelivery = false
   // use-cases
   var photo: Boolean? = null
@@ -95,9 +109,25 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
   var lowLightBoost: Boolean? = null // nullable bool
   // other props
   var isActive = false
-  var torch = "off"
+  var torch: String? = "off"
+  var tempTorch: String?  = "off"
+  var autoTorch = false
+  var minLightValue = 11
+     set(value) {
+      field = value
+     }
+  var maxLightValue = 100
+    set(value) {
+      field = value
+     }
+  var brightness = 250 //default
+    set(value) {
+      field = value
+     }
+  var frameCounter = 0
   var zoom: Float = 1f // in "factor"
   var orientation: String? = null
+  var videoStabilizationMode: String? = null
   var enableZoomGesture = false
     set(value) {
       field = value
@@ -111,7 +141,9 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
       frameProcessorPerformanceDataCollector.clear()
     }
 
+
   // private properties
+  private var lightLevel = 50
   private var isMounted = false
   private val reactContext: ReactContext
     get() = context as ReactContext
@@ -128,7 +160,6 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
   internal var videoCapture: VideoCapture<Recorder>? = null
   private var imageAnalysis: ImageAnalysis? = null
   private var preview: Preview? = null
-
   internal var activeVideoRecording: Recording? = null
 
   private var lastFrameProcessorCall = System.currentTimeMillis()
@@ -191,6 +222,18 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
         val cameraManger = reactContext.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
         cameraManger?.let {
           val characteristics = cameraManger.getCameraCharacteristics(cameraId)
+          val digitalStabilizationModes = characteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
+          val opticalStabilizationModes = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
+          if (digitalStabilizationModes != null) {
+              if (digitalStabilizationModes.contains(CameraCharacteristics.CONTROL_VIDEO_STABILIZATION_MODE_ON)) {
+                supportVideoStabilization = true
+              }
+          }
+          if (opticalStabilizationModes != null) {
+              if (opticalStabilizationModes.contains(CameraCharacteristics.LENS_OPTICAL_STABILIZATION_MODE_ON)) {
+                supportVideoStabilization = true
+              }
+          }
           val hardwareLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
           if (hardwareLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY) {
             // Camera only supports a single use-case at a time
@@ -317,7 +360,7 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
       try {
         val shouldReconfigureSession = changedProps.containsAny(propsThatRequireSessionReconfiguration)
         val shouldReconfigureZoom = shouldReconfigureSession || changedProps.contains("zoom")
-        val shouldReconfigureTorch = shouldReconfigureSession || changedProps.contains("torch")
+        val shouldReconfigureTorch = shouldReconfigureSession || changedProps.contains("torch") || changedProps.contains("tempTorch")
         val shouldUpdateOrientation = shouldReconfigureSession ||  changedProps.contains("orientation")
 
         if (changedProps.contains("isActive")) {
@@ -330,9 +373,29 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
           val zoomClamped = max(min(zoom, maxZoom), minZoom)
           camera!!.cameraControl.setZoomRatio(zoomClamped)
         }
-        if (shouldReconfigureTorch) {
-          camera!!.cameraControl.enableTorch(torch == "on")
+        if (shouldReconfigureTorch && !autoTorch) {
+          if(torch == "on"){
+              camera!!.cameraControl.enableTorch(true)
+          }
+          if(torch == "off"){
+              camera!!.cameraControl.enableTorch(false)
+          }
+          if(torch == "auto")
+            autoTorch = true
         }
+        if (shouldReconfigureTorch && autoTorch) {
+          if(torch != "auto"){
+            tempTorch = "off"
+            autoTorch = false
+          }
+          if(tempTorch == "on"){
+              camera!!.cameraControl.enableTorch(true)
+          }
+          if(tempTorch == "off"){
+              camera!!.cameraControl.enableTorch(false)
+          }
+        }
+
         if (shouldUpdateOrientation) {
           updateOrientation()
         }
@@ -443,13 +506,40 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
             throw FpsNotContainedInFormatError(fps)
           }
         }
+        
+        Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_FAST)
+        
+        //Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
+
+        //Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE)
+        
+        //Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+        
+        //Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+
+        //Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_AUTO)
+
+        Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE, CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_HIGH_QUALITY)
+
+        if(videoStabilizationMode != "off" && videoStabilizationMode != null && supportVideoStabilization == true)
+        {  
+          if(videoStabilizationMode == "standard" || videoStabilizationMode == "auto"){
+            Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON)
+          }
+          if(videoStabilizationMode == "cinematic" || videoStabilizationMode == "cinematic-extended"){
+            Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
+          }
+        }
         if (hdr == true) {
-          tryEnableExtension(ExtensionMode.HDR)
+          //tryEnableExtension(ExtensionMode.HDR)
+          Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_HDR)
         }
         if (lowLightBoost == true) {
-          tryEnableExtension(ExtensionMode.NIGHT)
+          //tryEnableExtension(ExtensionMode.NIGHT)
+          Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_NIGHT)
         }
       }
+
 
 
       // Unbind use cases before rebinding
@@ -482,17 +572,50 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
         Log.i(TAG, "Adding ImageAnalysis use-case...")
         imageAnalysis = imageAnalysisBuilder.build().apply {
           setAnalyzer(cameraExecutor, { image ->
+            
+              //val buffer = image.planes[0].buffer
+
+              // Extract image data from callback object
+              //val data = buffer.toByteArray()
+
+              // Convert the data into an array of pixel values ranging 0-255
+              //val pixels = data.map { it.toInt() and 0xFF }
+
+              // Compute average luminance for the image
+              //brightness = pixels.average().toInt()
+
+              //auto torch enable/disabled based on the light value and frameCounter so can skip some frame
+              //allow to settle down sensor for light
+              //Log.i(TAG, "Lightlevel:${lightLevel},  min:${minLightValue}, max:${maxLightValue}, brightness:${brightness}")
+              
+              if(autoTorch && frameCounter>=10){
+
+                if(lightLevel <= minLightValue && tempTorch == "off"){
+                      tempTorch = "on"
+                      update(arrayListOf("tempTorch","isActive"))
+                      frameCounter = 0
+                }
+                
+                if(lightLevel > maxLightValue && tempTorch == "on"){
+                      tempTorch = "off"
+                      update(arrayListOf("tempTorch","isActive"))
+                      frameCounter = 0
+                }
+
+              }
+             
             val now = System.currentTimeMillis()
             val intervalMs = (1.0 / actualFrameProcessorFps) * 1000.0
+            //Log.i(TAG, "Image size in analyser....${image.width}x${image.height}....Light:${lightLevel} - Auto Torch Status:${autoTorch}")
+
             if (now - lastFrameProcessorCall > intervalMs) {
               lastFrameProcessorCall = now
-
               val perfSample = frameProcessorPerformanceDataCollector.beginPerformanceSampleCollection()
               frameProcessorCallback(image)
               perfSample.endPerformanceSampleCollection()
+              frameCounter++;
             }
             image.close()
-
             if (isReadyForNewEvaluation) {
               // last evaluation was more than a second ago, evaluate again
               evaluateNewPerformanceSamples()
@@ -501,6 +624,11 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
         }
         useCases.add(imageAnalysis!!)
       }
+
+      val previewExtender = Camera2Interop.Extender(previewBuilder)
+
+      // Attach the Camera2 CaptureCallback
+      previewExtender.setSessionCaptureCallback(captureCallback)
 
       preview = previewBuilder.build()
       Log.i(TAG, "Attaching ${useCases.size} use-cases...")
@@ -545,5 +673,44 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
         lastSuggestedFrameProcessorFps = suggestedFrameProcessorFps
       }
     }
+  }
+ 
+  //capture callback on the previewview to get the camera sensor data
+  private val captureCallback = object : CameraCaptureSession.CaptureCallback() {
+    override fun onCaptureProgressed(
+      session: CameraCaptureSession,
+      request: CaptureRequest,
+      partialResult: CaptureResult) { }
+
+    override fun onCaptureCompleted(
+      session: CameraCaptureSession,
+      request: CaptureRequest,
+      result: TotalCaptureResult) { 
+        
+        //sensor exposure time in nano second needed to convert into seconds
+        var t = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)!!.toDouble() * 1.0e-9 
+        
+        //sensor sensitivity information ISO
+        var s = result.get(CaptureResult.SENSOR_SENSITIVITY)!!.toDouble() 
+        //light level calculation based on measured brightness in luminance/(t*s)
+        lightLevel = (brightness.toDouble() / (t * s)).toInt()
+        try{
+          reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("brightnessEvent", lightLevel)
+        } catch (e: Throwable){
+          Log.e(TAG,"Exception in brightness event: ${e.message}")
+        }
+        
+        
+      }
+  }
+
+  /**
+  * Helper extension function used to extract a byte array from an image plane buffer
+  */
+  private fun ByteBuffer.toByteArray(): ByteArray {
+      rewind()    // Rewind the buffer to zero
+      val data = ByteArray(remaining())
+      get(data)   // Copy the buffer into a byte array
+      return data // Return the byte array
   }
 }
