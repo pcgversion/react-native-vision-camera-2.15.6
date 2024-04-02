@@ -215,4 +215,6 @@ export interface CameraProps extends ViewProps {
   minLightValue?: number;
   //max light value, if light level goes above this value it will turn off mobile torch on automatically if auto torch is on
   maxLightValue?: number;
+  //enable frame processor
+  enableFrameProcessor?: boolean;
 }
