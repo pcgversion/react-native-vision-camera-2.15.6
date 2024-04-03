@@ -26,7 +26,7 @@ type NativeCameraViewProps = Omit<
 > & {
   cameraId: string;
   frameProcessorFps?: number; // native cannot use number | string, so we use '-1' for 'auto'
-  enableFrameProcessor: boolean;
+  //enableFrameProcessor: boolean;
   onInitialized?: (event: NativeSyntheticEvent<void>) => void;
   onError?: (event: NativeSyntheticEvent<OnErrorEvent>) => void;
   onFrameProcessorPerformanceSuggestionAvailable?: (event: NativeSyntheticEvent<FrameProcessorPerformanceSuggestion>) => void;
@@ -475,7 +475,7 @@ export class Camera extends React.PureComponent<CameraProps> {
   /** @internal */
   public render(): React.ReactNode {
     // We remove the big `device` object from the props because we only need to pass `cameraId` to native.
-    const { device, frameProcessor, frameProcessorFps, ...props } = this.props;
+    const { device, frameProcessor, frameProcessorFps, enableFrameProcessor, ...props } = this.props;
     return (
       <NativeCameraView
         {...props}
@@ -486,7 +486,8 @@ export class Camera extends React.PureComponent<CameraProps> {
         onInitialized={this.onInitialized}
         onError={this.onError}
         onFrameProcessorPerformanceSuggestionAvailable={this.onFrameProcessorPerformanceSuggestionAvailable}
-        enableFrameProcessor={frameProcessor != null}
+        //enableFrameProcessor={frameProcessor != null}
+        enableFrameProcessor={this.props.enableFrameProcessor}
       />
     );
   }
