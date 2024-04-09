@@ -101,6 +101,9 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
   var video: Boolean? = null
   var audio: Boolean? = null
   var enableFrameProcessor = false
+   set(value) {
+      field = value
+     }
   // props that require format reconfiguring
   var format: ReadableMap? = null
   var fps: Int? = null
@@ -125,7 +128,6 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
       field = value
      }
   var frameCounter = 0
-  var avgBrightness = 0  
   var zoom: Float = 1f // in "factor"
   var orientation: String? = null
   var videoStabilizationMode: String? = null
@@ -454,7 +456,10 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
 
       val imageCaptureBuilder = ImageCapture.Builder()
         .setTargetRotation(outputRotation)
-        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+      if(!enableFrameProcessor)
+        imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+      else
+        imageCaptureBuilder.setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
 
       val videoRecorderBuilder = Recorder.Builder()
         .setExecutor(cameraExecutor)
@@ -570,20 +575,20 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
         }
       }
       if (enableFrameProcessor) {
-        Log.i(TAG, "Adding ImageAnalysis use-case...")
+        Log.i(TAG, "Adding ImageAnalysis frameprocessor use-case...")
         imageAnalysis = imageAnalysisBuilder.build().apply {
           setAnalyzer(cameraExecutor, { image ->
             
-              val buffer = image.planes[0].buffer
+              //val buffer = image.planes[0].buffer
 
               // Extract image data from callback object
-              val data = buffer.toByteArray()
+              //val data = buffer.toByteArray()
 
               // Convert the data into an array of pixel values ranging 0-255
-              val pixels = data.map { it.toInt() and 0xFF }
+              //val pixels = data.map { it.toInt() and 0xFF }
 
               // Compute average luminance for the image
-              avgBrightness = pixels.average().toInt()
+              //brightness = pixels.average().toInt()
 
               //auto torch enable/disabled based on the light value and frameCounter so can skip some frame
               //allow to settle down sensor for light
@@ -694,8 +699,7 @@ class CameraView(context: Context, private val frameProcessorThread: ExecutorSer
         //sensor sensitivity information ISO
         var s = result.get(CaptureResult.SENSOR_SENSITIVITY)!!.toDouble() 
         //light level calculation based on measured brightness in luminance/(t*s)
-        lightLevel = (avgBrightness / (t * s).toInt())
-        Log.d(TAG,"lightLevel... ${lightLevel}, ${s}, ${t}, ${avgBrightness}")
+        lightLevel = (brightness.toDouble() / (t * s)).toInt()
         try{
           reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("brightnessEvent", lightLevel)
         } catch (e: Throwable){
