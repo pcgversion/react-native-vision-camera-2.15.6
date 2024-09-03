@@ -62,7 +62,6 @@ extension CameraView {
         // set photo resolution
         if #available(iOS 16.0, *) {
           photoSettings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
-          ReactLogger.log(level: .info, message: "Capturing photo - TakePhoto -  maxPhotoDimensions: \(photoOutput.maxPhotoDimensions)")
         } else {
           photoSettings.isHighResolutionPhotoEnabled = photoOutput.isHighResolutionCaptureEnabled
         }
