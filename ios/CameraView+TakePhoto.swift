@@ -59,8 +59,12 @@ extension CameraView {
       // default, overridable settings if high quality capture was enabled
       if self.enableHighQualityPhotos?.boolValue == true {
         photoSettings.isHighResolutionPhotoEnabled = true
-        if #available(iOS 13.0, *) {
-          photoSettings.photoQualityPrioritization = .quality
+        // set photo resolution
+        if #available(iOS 16.0, *) {
+          photoSettings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+          ReactLogger.log(level: .info, message: "Capturing photo - TakePhoto -  maxPhotoDimensions: \(photoOutput.maxPhotoDimensions)")
+        } else {
+          photoSettings.isHighResolutionPhotoEnabled = photoOutput.isHighResolutionCaptureEnabled
         }
       }
 
@@ -102,6 +106,10 @@ extension CameraView {
       if #available(iOS 14.1, *), let enableAutoDistortionCorrection = options["enableAutoDistortionCorrection"] as? Bool {
         photoSettings.isAutoContentAwareDistortionCorrectionEnabled = enableAutoDistortionCorrection
       }
+      // Adjust the orientation
+      if let connection = photoOutput.connection(with: .video) {
+          connection.videoOrientation = self.getCurrentDeviceOrientation()
+      }
 
       photoOutput.capturePhoto(with: photoSettings, delegate: PhotoCaptureDelegate(promise: promise))
 
@@ -109,4 +117,38 @@ extension CameraView {
       photoOutput.setPreparedPhotoSettingsArray([photoSettings], completionHandler: nil)
     }
   }
+  // Get the current device orientation and map it to AVCaptureVideoOrientation
+    func getCurrentDeviceOrientation() -> AVCaptureVideoOrientation {
+        let deviceOrientation = UIDevice.current.orientation
+        switch deviceOrientation {
+        case .portrait:
+            return .portrait
+        case .landscapeRight:
+            return .landscapeLeft
+        case .landscapeLeft:
+            return .landscapeRight
+        case .faceUp, .faceDown:
+            let tempOrientation = isDeviceInLandscapeWhenFaceUp()
+            if(tempOrientation?.rawValue == 4){
+                return .landscapeLeft
+            }
+            if(tempOrientation?.rawValue == 3){
+                return .landscapeRight
+            }
+            return .portrait
+         default:
+            return .portrait // Default fallback
+        }
+    }
+}
+func isDeviceInLandscapeWhenFaceUp() -> UIInterfaceOrientation? {
+    let orientation = UIDevice.current.orientation
+    // If the device is face up, check the interface orientation
+    if orientation == .faceUp {
+        // Get the current interface orientation
+        if #available(iOS 13.0, *), let interfaceOrientation = UIApplication.shared.windows.first?.windowScene?.interfaceOrientation as? UIInterfaceOrientation{
+                return interfaceOrientation
+        }
+    }
+    return nil
 }

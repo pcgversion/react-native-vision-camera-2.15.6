@@ -111,7 +111,7 @@ public final class CameraView: UIView {
   internal var actualFrameProcessorFps = 30.0
   internal var lastSuggestedFrameProcessorFps = 0.0
   internal var lastFrameProcessorPerformanceEvaluation = DispatchTime.now()
-
+  internal var cameraViewVideoPreviewLayer:AVCaptureVideoPreviewLayer?
   /// Returns whether the AVCaptureSession is currently running (reflected by isActive)
   var isRunning: Bool {
     return captureSession.isRunning
@@ -132,7 +132,9 @@ public final class CameraView: UIView {
     super.init(frame: frame)
     videoPreviewLayer.session = captureSession
     videoPreviewLayer.videoGravity = .resizeAspectFill
+    //videoPreviewLayer.videoGravity = .resizeAspect
     videoPreviewLayer.frame = layer.bounds
+    cameraViewVideoPreviewLayer = videoPreviewLayer
 
     NotificationCenter.default.addObserver(self,
                                            selector: #selector(sessionRuntimeError),

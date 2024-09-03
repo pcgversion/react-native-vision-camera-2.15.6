@@ -92,7 +92,7 @@ extension CameraView {
       self.photoOutput = nil
     }
     if photo?.boolValue == true {
-      ReactLogger.log(level: .info, message: "Adding Photo output...")
+      ReactLogger.log(level: .info, message: "Adding Photo output...\(enableHighQualityPhotos?.boolValue)")
       photoOutput = AVCapturePhotoOutput()
 
       if enableHighQualityPhotos?.boolValue == true {
@@ -103,6 +103,11 @@ extension CameraView {
         } else {
           photoOutput!.isDualCameraDualPhotoDeliveryEnabled = photoOutput!.isDualCameraDualPhotoDeliverySupported
         }
+      }
+//      ReactLogger.log(level: .info, message: "Photo Output -  Quality priortrization: \(photoOutput!.maxPhotoQualityPrioritization) \(photoOutput!.isVirtualDeviceConstituentPhotoDeliveryEnabled) \(photoOutput!.isDualCameraDualPhotoDeliveryEnabled)")
+      ReactLogger.log(level: .info, message: "Photo Output -  high resolution: \(photoOutput!.isHighResolutionCaptureEnabled)")
+      if #available(iOS 16.0, *){ 
+        ReactLogger.log(level: .info, message: "Photo Output -  maxPhotoDimensions: \(photoOutput!.maxPhotoDimensions)")
       }
       if enableDepthData {
         photoOutput!.isDepthDataDeliveryEnabled = photoOutput!.isDepthDataDeliverySupported
@@ -133,7 +138,8 @@ extension CameraView {
         return
       }
       videoOutput!.setSampleBufferDelegate(self, queue: videoQueue)
-      videoOutput!.alwaysDiscardsLateVideoFrames = false
+      //videoOutput!.alwaysDiscardsLateVideoFrames = false
+      videoOutput!.alwaysDiscardsLateVideoFrames = true
       captureSession.addOutput(videoOutput!)
     }
 
