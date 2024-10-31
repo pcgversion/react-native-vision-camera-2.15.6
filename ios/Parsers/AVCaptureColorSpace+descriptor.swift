@@ -5,9 +5,9 @@
 //  Created by Marc Rousavy on 19.12.20.
 //  Copyright © 2020 mrousavy. All rights reserved.
 //
-+//@snguyen -- Begin
-+//Removed support for colorSpace and this field is removed in vision-camera v3. Crashing on iOS 17
-+/*
+//@snguyen -- Begin
+//Removed support for colorSpace and this field is removed in vision-camera v3. Crashing on iOS 17
+/*
 import AVFoundation
 
 extension AVCaptureColorSpace {
@@ -44,5 +44,5 @@ extension AVCaptureColorSpace {
     }
   }
 }
-+//@snguyen -- End
-+*/
+//@snguyen -- End
+*/
