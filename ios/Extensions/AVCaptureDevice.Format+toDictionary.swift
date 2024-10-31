@@ -34,9 +34,9 @@ extension AVCaptureDevice.Format {
       "fieldOfView": videoFieldOfView,
       "maxZoom": videoMaxZoomFactor,
        //@snguyen -- Begin
-+      //Removed support for colorSpace and this field is removed in vision-camera v3. Crashing on iOS 17
-+      //"colorSpaces": supportedColorSpaces.map(\.descriptor),
-+      //@snguyen -- End
+      //Removed support for colorSpace and this field is removed in vision-camera v3. Crashing on iOS 17
+      //"colorSpaces": supportedColorSpaces.map(\.descriptor),
+      //@snguyen -- End
       "supportsVideoHDR": isVideoHDRSupported,
       "supportsPhotoHDR": false,
       "frameRateRanges": videoSupportedFrameRateRanges.map {
