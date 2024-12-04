@@ -54,6 +54,9 @@ extension AVCaptureDevice.Format {
         return false
       }
     }
+    /*
+    //@snguyen
+    //Removed support for colorSpace and this field is removed in vision-camera v3. Crashing on iOS 17
     if let colorSpaces = filter.value(forKey: "colorSpaces") as? [String] {
       let avColorSpaces = colorSpaces.map { try? AVCaptureColorSpace(string: $0) }
       let allColorSpacesIncluded = supportedColorSpaces.allSatisfy { avColorSpaces.contains($0) }
@@ -61,6 +64,7 @@ extension AVCaptureDevice.Format {
         return false
       }
     }
+    */
     if let frameRateRanges = filter.value(forKey: "frameRateRanges") as? [NSDictionary] {
       let allFrameRateRangesIncluded = videoSupportedFrameRateRanges.allSatisfy { range -> Bool in
         frameRateRanges.contains { dict -> Bool in

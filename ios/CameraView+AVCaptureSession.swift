@@ -196,6 +196,9 @@ extension CameraView {
           device.automaticallyEnablesLowLightBoostWhenAvailable = lowLightBoost!.boolValue
         }
       }
+      /*
+      //@snguyen -- Begin
++      //Removed support for colorSpace and this field is removed in vision-camera v3. Crashing on iOS 17
       if let colorSpace = colorSpace as String? {
         guard let avColorSpace = try? AVCaptureColorSpace(string: colorSpace),
               device.activeFormat.supportedColorSpaces.contains(avColorSpace) else {
@@ -204,6 +207,8 @@ extension CameraView {
         }
         device.activeColorSpace = avColorSpace
       }
+     //@snguyen -- End
++    */
 
       device.unlockForConfiguration()
       ReactLogger.log(level: .info, message: "Device successfully configured!")
