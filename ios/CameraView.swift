@@ -9,13 +9,29 @@
 import AVFoundation
 import Foundation
 import UIKit
-
+import MediaPlayer
+import React
 //
 // TODOs for the CameraView which are currently too hard to implement either because of AVFoundation's limitations, or my brain capacity
 //
 // CameraView+RecordVideo
 // TODO: Better startRecording()/stopRecording() (promise + callback, wait for TurboModules/JSI)
 
+// Volume button tracking
+private var volumeUpPressCount = 0
+private var volumeDownPressCount = 0
+private var volumeUpPressTimer: Timer?
+private var volumeDownPressTimer: Timer?
+private var volumeUpIsHeld = false
+private var volumeDownIsHeld = false
+private var volumeUpLastPressTime: Date?
+private var volumeDownLastPressTime: Date?
+private let volumeThresholdTimeInterval: TimeInterval = 1 // 1 second for detecting double/triple press
+private let longPressThreshold: TimeInterval = 3 // 3 seconds for long press
+private var previousVolume: Float?
+private var originalVolume: Float?
+// Hide the native volume UI
+private let volumeView = MPVolumeView()
 // CameraView+TakePhoto
 // TODO: Photo HDR
 
@@ -39,6 +55,7 @@ public final class CameraView: UIView {
 
   // pragma MARK: Exported Properties
   // props that require reconfiguring
+  weak var manager: CameraViewManager?  //to get the cameraViewManager to send event to react via RCTBridge
   @objc var cameraId: NSString?
   @objc var enableDepthData = false
   @objc var enableHighQualityPhotos: NSNumber? // nullable bool
@@ -136,6 +153,26 @@ public final class CameraView: UIView {
     videoPreviewLayer.frame = layer.bounds
     cameraViewVideoPreviewLayer = videoPreviewLayer
 
+    // Set up audio session
+    do {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: .mixWithOthers)
+        try session.setActive(true)
+        previousVolume = AVAudioSession.sharedInstance().outputVolume
+        originalVolume = AVAudioSession.sharedInstance().outputVolume
+    } catch {
+        print("Failed to set up audio session: \(error)")
+    }
+    // Hide native volume UI by adding the volumeView and immediately hiding it
+    volumeView.frame = CGRect(x: -100, y: -100, width: 1, height: 1)
+    self.addSubview(volumeView)
+    // Listen for volume button events using AVAudioSession
+  // Observe in eg. viewDidLoad
+  var volumeChangedSystemName = NSNotification.Name(rawValue: "AVSystemController_SystemVolumeDidChangeNotification")
+  if #available(iOS 15, *) {
+    volumeChangedSystemName = NSNotification.Name(rawValue: "SystemVolumeDidChange")
+  }
+  NotificationCenter.default.addObserver(self, selector: #selector(volumeChanged(_:)), name: volumeChangedSystemName, object: nil)
     NotificationCenter.default.addObserver(self,
                                            selector: #selector(sessionRuntimeError),
                                            name: .AVCaptureSessionRuntimeError,
@@ -172,6 +209,7 @@ public final class CameraView: UIView {
     NotificationCenter.default.removeObserver(self,
                                               name: UIDevice.orientationDidChangeNotification,
                                               object: nil)
+    NotificationCenter.default.removeObserver(self)
   }
 
   override public func willMove(toSuperview newSuperview: UIView?) {
@@ -184,7 +222,16 @@ public final class CameraView: UIView {
       onViewReady(nil)
     }
   }
-
+  @objc func volumeChanged(_ notification: NSNotification) {
+          DispatchQueue.main.async { [self] in
+              if #available(iOS 15, *) {
+                  volumeControlIOS15(notification)
+              }
+              else {
+                  volumeControlIOS14(notification)
+              }
+          }
+      }
   // pragma MARK: Props updating
   override public final func didSetProps(_ changedProps: [String]!) {
     ReactLogger.log(level: .info, message: "Updating \(changedProps.count) prop(s)...")
@@ -358,5 +405,120 @@ public final class CameraView: UIView {
       "suggestedFrameProcessorFps": suggestedFps,
     ])
     lastSuggestedFrameProcessorFps = suggestedFps
+  }
+  private func volumeControlIOS15(_ notification: NSNotification) {
+    volumeButtonPressed(notification);
+    // if let volume = notification.userInfo!["Volume"] as? Float {
+    //    print("changed value1: \(volume)")
+    // }
+  }
+  private func volumeControlIOS14(_ notification: NSNotification) {
+      volumeButtonPressed(notification);
+      // if let volume = notification.userInfo!["AVSystemController_AudioVolumeNotificationParameter"] as? Float {
+      //     print("changed value2: \(volume)")
+      // }
+  }
+ // Handle volume button press
+  private func volumeButtonPressed(_ notification: NSNotification) {
+    ReactLogger.log(level: .info, message: "Volume Button Pressed! \(notification)")
+    guard let userInfo = notification.userInfo,
+        let volumeChangeReason = userInfo["Reason"] as? String,
+        volumeChangeReason == "ExplicitVolumeChange" else {
+          return
+        }
+    var volumeChange: Float?
+    if #available(iOS 15, *) {
+        if let volume  = notification.userInfo!["Volume"] as? Float {
+          volumeChange = volume;
+          print("Got volume property! \(volumeChange)")
+        }
+    }else{
+        if let volume =  notification.userInfo!["AVSystemController_AudioVolumeNotificationParameter"] as? Float {
+          volumeChange = volume;
+          print("Got AVSystemController_AudioVolumeNotificationParameter property!")
+        }
+    }
+    // Ensure volumeChange is not nil before using it
+    guard let finalVolumeChange = volumeChange else {
+        return
+    }
+      guard let finalPrevVolume = previousVolume else {
+          return
+    }
+    //ReactLogger.log(level: .info, message: "Volume Data:\(finalVolumeChange) \(previousVolume)")
+    if finalVolumeChange > finalPrevVolume { // Volume up press
+        handleVolumeUpPress()
+    } else if finalVolumeChange < finalPrevVolume { // Volume down press
+        handleVolumeDownPress()
+    }else if finalVolumeChange <= 0 { // Volume down press
+        handleVolumeDownPress()
+    }
+    previousVolume = finalVolumeChange
+  }
+  // Handle volume up press
+  private func handleVolumeUpPress() {
+    volumeUpPressCount += 1
+    if volumeUpPressCount == 1 {
+      volumeUpLastPressTime = Date()
+      volumeUpPressTimer = Timer.scheduledTimer(timeInterval: volumeThresholdTimeInterval, target: self, selector: #selector(volumeUpPressTimerElapsed), userInfo: nil, repeats: false)
+    }
+  }
+  // Handle volume down press
+  private func handleVolumeDownPress() {
+    volumeDownPressCount += 1
+    if volumeDownPressCount == 1 {
+      volumeDownLastPressTime = Date()
+      volumeDownPressTimer = Timer.scheduledTimer(timeInterval: volumeThresholdTimeInterval, target: self, selector: #selector(volumeDownPressTimerElapsed), userInfo: nil, repeats: false)
+    }
+  }
+  // Volume up press timer callback
+  @objc private func volumeUpPressTimerElapsed() {
+    guard let lastPressTime = volumeUpLastPressTime else { return }
+    let timeIntervalSinceLastPress = Date().timeIntervalSince(lastPressTime)
+    if timeIntervalSinceLastPress >= longPressThreshold {
+      // Handle long press (held for 3 seconds)
+      volumeUpIsHeld = true
+      invokeVolumeKeyEvent(type: "volumeUpHold")
+    } else if volumeUpPressCount == 1 {
+      // Single press detected
+      invokeVolumeKeyEvent(type: "volumeUpSingle")
+    } else if volumeUpPressCount == 2 {
+      // Double press detected
+      invokeVolumeKeyEvent(type: "volumeUpDouble")
+    } else if volumeUpPressCount >= 3 {
+      // Triple press detected
+      invokeVolumeKeyEvent(type: "volumeUpTriple")
+    }
+    // Reset press count
+    volumeUpPressCount = 0
+  }
+  // Volume down press timer callback
+  @objc private func volumeDownPressTimerElapsed() {
+    guard let lastPressTime = volumeDownLastPressTime else { return }
+    let timeIntervalSinceLastPress = Date().timeIntervalSince(lastPressTime)
+    if timeIntervalSinceLastPress >= longPressThreshold {
+      // Handle long press (held for 3 seconds)
+      volumeDownIsHeld = true
+      invokeVolumeKeyEvent(type: "volumeDownHold")
+    } else if volumeDownPressCount == 1 {
+      // Single press detected
+      invokeVolumeKeyEvent(type: "volumeDownSingle")
+    } else if volumeDownPressCount == 2 {
+      // Double press detected
+      invokeVolumeKeyEvent(type: "volumeDownDouble")
+    } else if volumeDownPressCount >= 3 {
+      // Triple press detected
+      invokeVolumeKeyEvent(type: "volumeDownTriple")
+    }
+    // Reset press count
+    volumeDownPressCount = 0
+  }
+  private func invokeVolumeKeyEvent(type: String) {
+    //ReactLogger.log(level: .info, message: "Volume Key Press: \(type)")
+    // Emit event to React Native using DeviceEventEmitter
+    if let bridge = manager?.bridge {
+      previousVolume = originalVolume
+      bridge.eventDispatcher().sendAppEvent(withName: "VolumeKeyEvent", body: [type])
+    }
   }
 }
