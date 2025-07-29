@@ -1,44 +1,46 @@
-import React from 'react';
-import { requireNativeComponent, NativeModules, NativeSyntheticEvent, findNodeHandle, NativeMethods, Platform, DeviceEventEmitter } from 'react-native';
-import type { FrameProcessorPerformanceSuggestion, VideoFileType } from '.';
-import type { CameraDevice } from './CameraDevice';
-import type { ErrorWithCause } from './CameraError';
-import { CameraCaptureError, CameraRuntimeError, tryParseNativeCameraError, isErrorWithCause } from './CameraError';
-import type { CameraProps } from './CameraProps';
-import type { Frame } from './Frame';
-import type { PhotoFile, TakePhotoOptions } from './PhotoFile';
-import type { Point } from './Point';
-import type { TakeSnapshotOptions } from './Snapshot';
-import type { CameraVideoCodec, RecordVideoOptions, VideoFile } from './VideoFile';
+import React from 'react'
+import { findNodeHandle, StyleSheet } from 'react-native'
+import type { CameraDevice } from './types/CameraDevice'
+import type { CameraCaptureError } from './CameraError'
+import { CameraRuntimeError, tryParseNativeCameraError, isErrorWithCause } from './CameraError'
+import type { CameraProps, DrawableFrameProcessor, OnShutterEvent, ReadonlyFrameProcessor } from './types/CameraProps'
+import { CameraModule } from './NativeCameraModule'
+import type { PhotoFile, TakePhotoOptions } from './types/PhotoFile'
+import type { Point } from './types/Point'
+import type { RecordVideoOptions, VideoFile } from './types/VideoFile'
+import { VisionCameraProxy } from './frame-processors/VisionCameraProxy'
+import { CameraDevices } from './CameraDevices'
+import type { EmitterSubscription, NativeSyntheticEvent, NativeMethods } from 'react-native'
+import type { TakeSnapshotOptions } from './types/Snapshot'
+import { SkiaCameraCanvas } from './skia/SkiaCameraCanvas'
+import type { Frame } from './types/Frame'
+import { FpsGraph, MAX_BARS } from './FpsGraph'
+import type {
+  AverageFpsChangedEvent,
+  NativeCameraViewProps,
+  OnCodeScannedEvent,
+  OnErrorEvent,
+  OutputOrientationChangedEvent,
+  PreviewOrientationChangedEvent,
+} from './NativeCameraView'
+import { NativeCameraView } from './NativeCameraView'
+import { RotationHelper } from './RotationHelper'
 
 //#region Types
-export type CameraPermissionStatus = 'authorized' | 'not-determined' | 'denied' | 'restricted';
-export type CameraPermissionRequestResult = 'authorized' | 'denied';
+export type CameraPermissionStatus = 'granted' | 'not-determined' | 'denied' | 'restricted'
+export type CameraPermissionRequestResult = 'granted' | 'denied'
 
-interface OnErrorEvent {
-  code: string;
-  message: string;
-  cause?: ErrorWithCause;
+type NativeRecordVideoOptions = Omit<RecordVideoOptions, 'onRecordingError' | 'onRecordingFinished'>
+type RefType = React.Component<NativeCameraViewProps> & Readonly<NativeMethods>
+interface CameraState {
+  isRecordingWithFlash: boolean
+  averageFpsSamples: number[]
 }
-type NativeCameraViewProps = Omit<
-  CameraProps,
-  'device' | 'onInitialized' | 'onError' | 'onFrameProcessorPerformanceSuggestionAvailable' | 'frameProcessor' | 'frameProcessorFps'
-> & {
-  cameraId: string;
-  frameProcessorFps?: number; // native cannot use number | string, so we use '-1' for 'auto'
-  //enableFrameProcessor: boolean;
-  onInitialized?: (event: NativeSyntheticEvent<void>) => void;
-  onError?: (event: NativeSyntheticEvent<OnErrorEvent>) => void;
-  onFrameProcessorPerformanceSuggestionAvailable?: (event: NativeSyntheticEvent<FrameProcessorPerformanceSuggestion>) => void;
-  onViewReady: () => void;
-};
-type RefType = React.Component<NativeCameraViewProps> & Readonly<NativeMethods>;
 //#endregion
 
-// NativeModules automatically resolves 'CameraView' to 'CameraViewModule'
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const CameraModule = NativeModules.CameraView;
-if (CameraModule == null) console.error("Camera: Native Module 'CameraView' was null! Did you run pod install?");
+function isSkiaFrameProcessor(frameProcessor?: ReadonlyFrameProcessor | DrawableFrameProcessor): frameProcessor is DrawableFrameProcessor {
+  return frameProcessor?.type === 'drawable-skia'
+}
 
 //#region Camera Component
 /**
@@ -46,18 +48,21 @@ if (CameraModule == null) console.error("Camera: Native Module 'CameraView' was 
  *
  * Read the [VisionCamera documentation](https://react-native-vision-camera.com/) for more information.
  *
- * The `<Camera>` component's most important (and therefore _required_) properties are:
+ * The `<Camera>` component's most important properties are:
  *
- * * {@linkcode CameraProps.device | device}: Specifies the {@linkcode CameraDevice} to use. Get a {@linkcode CameraDevice} by using the {@linkcode useCameraDevices | useCameraDevices()} hook, or manually by using the {@linkcode Camera.getAvailableCameraDevices Camera.getAvailableCameraDevices()} function.
- * * {@linkcode CameraProps.isActive | isActive}: A boolean value that specifies whether the Camera should actively stream video frames or not. This can be compared to a Video component, where `isActive` specifies whether the video is paused or not. If you fully unmount the `<Camera>` component instead of using `isActive={false}`, the Camera will take a bit longer to start again.
+ * * {@linkcode CameraProps.device | device}: Specifies the {@linkcode CameraDevice} to use. Get a {@linkcode CameraDevice} by using
+ * the {@linkcode useCameraDevice | useCameraDevice(..)} hook, or manually by using
+ * the {@linkcode CameraDevices.getAvailableCameraDevices | CameraDevices.getAvailableCameraDevices()} function.
+ * * {@linkcode CameraProps.isActive | isActive}: A boolean value that specifies whether the Camera should
+ * actively stream video frames or not. This can be compared to a Video component, where `isActive` specifies whether the video
+ * is paused or not. If you fully unmount the `<Camera>` component instead of using `isActive={false}`, the Camera will take a bit longer to start again.
  *
  * @example
  * ```tsx
  * function App() {
- *   const devices = useCameraDevices('wide-angle-camera')
- *   const device = devices.back
+ *   const device = useCameraDevice('back')
  *
- *   if (device == null) return <LoadingView />
+ *   if (device == null) return <NoCameraErrorView />
  *   return (
  *     <Camera
  *       style={StyleSheet.absoluteFill}
@@ -70,48 +75,62 @@ if (CameraModule == null) console.error("Camera: Native Module 'CameraView' was 
  *
  * @component
  */
-export class Camera extends React.PureComponent<CameraProps> {
+export class Camera extends React.PureComponent<CameraProps, CameraState> {
   /** @internal */
-  static displayName = 'Camera';
+  static displayName = 'Camera'
   /** @internal */
-  displayName = Camera.displayName;
-  private lastFrameProcessor: ((frame: Frame) => void) | undefined;
-  private isNativeViewMounted = false;
+  displayName = Camera.displayName
+  private lastFrameProcessor: ((frame: Frame) => void) | undefined
+  private isNativeViewMounted = false
+  private lastUIRotation: number | undefined = undefined
+  private rotationHelper = new RotationHelper()
 
-  private readonly ref: React.RefObject<RefType>;
+  private readonly ref: React.RefObject<RefType>
 
   /** @internal */
   constructor(props: CameraProps) {
-    super(props);
-    this.onViewReady = this.onViewReady.bind(this);
-    this.onInitialized = this.onInitialized.bind(this);
-    this.onError = this.onError.bind(this);
-    this.onFrameProcessorPerformanceSuggestionAvailable = this.onFrameProcessorPerformanceSuggestionAvailable.bind(this);
-    this.ref = React.createRef<RefType>();
-    this.lastFrameProcessor = undefined;
+    super(props)
+    this.onViewReady = this.onViewReady.bind(this)
+    this.onAverageFpsChanged = this.onAverageFpsChanged.bind(this)
+    this.onInitialized = this.onInitialized.bind(this)
+    this.onStarted = this.onStarted.bind(this)
+    this.onStopped = this.onStopped.bind(this)
+    this.onPreviewStarted = this.onPreviewStarted.bind(this)
+    this.onPreviewStopped = this.onPreviewStopped.bind(this)
+    this.onShutter = this.onShutter.bind(this)
+    this.onOutputOrientationChanged = this.onOutputOrientationChanged.bind(this)
+    this.onPreviewOrientationChanged = this.onPreviewOrientationChanged.bind(this)
+    this.onError = this.onError.bind(this)
+    this.onCodeScanned = this.onCodeScanned.bind(this)
+    this.ref = React.createRef<RefType>()
+    this.lastFrameProcessor = undefined
+    this.state = {
+      isRecordingWithFlash: false,
+      averageFpsSamples: [],
+    }
   }
 
-  private get handle(): number | null {
-    const nodeHandle = findNodeHandle(this.ref.current);
+  private get handle(): number {
+    const nodeHandle = findNodeHandle(this.ref.current)
     if (nodeHandle == null || nodeHandle === -1) {
       throw new CameraRuntimeError(
         'system/view-not-found',
         "Could not get the Camera's native view tag! Does the Camera View exist in the native view-tree?",
-      );
+      )
     }
 
-    return nodeHandle;
+    return nodeHandle
   }
 
   //#region View-specific functions (UIViewManager)
   /**
    * Take a single photo and write it's content to a temporary file.
    *
-   * @throws {@linkcode CameraCaptureError} When any kind of error occured while capturing the photo. Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
+   * @throws {@linkcode CameraCaptureError} When any kind of error occured while capturing the photo.
+   * Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
    * @example
    * ```ts
    * const photo = await camera.current.takePhoto({
-   *   qualityPrioritization: 'quality',
    *   flash: 'on',
    *   enableAutoRedEyeReduction: true
    * })
@@ -119,49 +138,56 @@ export class Camera extends React.PureComponent<CameraProps> {
    */
   public async takePhoto(options?: TakePhotoOptions): Promise<PhotoFile> {
     try {
-      return await CameraModule.takePhoto(this.handle, options ?? {});
+      return await CameraModule.takePhoto(this.handle, options ?? {})
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
     }
   }
 
   /**
-   * Take a snapshot of the current preview view.
+   * Captures a snapshot of the Camera view and write it's content to a temporary file.
    *
-   * This can be used as an alternative to {@linkcode Camera.takePhoto | takePhoto()} if speed is more important than quality
+   * - On iOS, `takeSnapshot` waits for a Frame from the video pipeline and therefore requires `video` to be enabled.
+   * - On Android, `takeSnapshot` performs a GPU view screenshot from the preview view.
    *
-   * @throws {@linkcode CameraCaptureError} When any kind of error occured while taking a snapshot. Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
-   *
-   * @platform Android
+   * @throws {@linkcode CameraCaptureError} When any kind of error occured while capturing the photo.
+   * Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
    * @example
    * ```ts
-   * const photo = await camera.current.takeSnapshot({
-   *   quality: 85,
-   *   skipMetadata: true
+   * const snapshot = await camera.current.takeSnapshot({
+   *   quality: 100
    * })
    * ```
    */
   public async takeSnapshot(options?: TakeSnapshotOptions): Promise<PhotoFile> {
-    if (Platform.OS !== 'android')
-      throw new CameraCaptureError('capture/capture-type-not-supported', `'takeSnapshot()' is not available on ${Platform.OS}!`);
-
     try {
-      return await CameraModule.takeSnapshot(this.handle, options ?? {});
+      return await CameraModule.takeSnapshot(this.handle, options ?? {})
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
+    }
+  }
+
+  private getBitRateMultiplier(bitRate: CameraProps['videoBitRate']): number {
+    if (typeof bitRate === 'number' || bitRate == null) return 1
+    switch (bitRate) {
+      case 'extra-low':
+        return 0.6
+      case 'low':
+        return 0.8
+      case 'normal':
+        return 1
+      case 'high':
+        return 1.2
+      case 'extra-high':
+        return 1.4
     }
   }
 
   /**
    * Start a new video recording.
    *
-   * Records in the following formats:
-   * * **iOS**: QuickTime (`.mov`)
-   * * **Android**: MPEG4 (`.mp4`)
-   *
-   * @blocking This function is synchronized/blocking.
-   *
-   * @throws {@linkcode CameraCaptureError} When any kind of error occured while starting the video recording. Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
+   * @throws {@linkcode CameraCaptureError} When any kind of error occured while starting the video recording.
+   * Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
    *
    * @example
    * ```ts
@@ -175,31 +201,51 @@ export class Camera extends React.PureComponent<CameraProps> {
    * ```
    */
   public startRecording(options: RecordVideoOptions): void {
-    const { onRecordingError, onRecordingFinished, ...passThroughOptions } = options;
+    const { onRecordingError, onRecordingFinished, ...passThruOptions } = options
     if (typeof onRecordingError !== 'function' || typeof onRecordingFinished !== 'function')
-      throw new CameraRuntimeError('parameter/invalid-parameter', 'The onRecordingError or onRecordingFinished functions were not set!');
+      throw new CameraRuntimeError('parameter/invalid-parameter', 'The onRecordingError or onRecordingFinished functions were not set!')
+
+    if (options.flash === 'on') {
+      // Enable torch for video recording
+      this.setState({
+        isRecordingWithFlash: true,
+      })
+    }
 
     const onRecordCallback = (video?: VideoFile, error?: CameraCaptureError): void => {
-      if (error != null) return onRecordingError(error);
-      if (video != null) return onRecordingFinished(video);
-    };
-    // TODO: Use TurboModules to either make this a sync invokation, or make it async.
+      if (this.state.isRecordingWithFlash) {
+        // disable torch again if it was enabled
+        this.setState({
+          isRecordingWithFlash: false,
+        })
+      }
+
+      if (error != null) return onRecordingError(error)
+      if (video != null) return onRecordingFinished(video)
+    }
+
+    const nativeRecordVideoOptions: NativeRecordVideoOptions = passThruOptions
     try {
-      CameraModule.startRecording(this.handle, passThroughOptions, onRecordCallback);
+      // TODO: Use TurboModules to make this awaitable.
+      CameraModule.startRecording(this.handle, nativeRecordVideoOptions, onRecordCallback)
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
     }
   }
 
   /**
    * Pauses the current video recording.
    *
-   * @throws {@linkcode CameraCaptureError} When any kind of error occured while pausing the video recording. Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
+   * @throws {@linkcode CameraCaptureError} When any kind of error occured while pausing the video recording.
+   * Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
    *
    * @example
    * ```ts
    * // Start
-   * await camera.current.startRecording()
+   * await camera.current.startRecording({
+   *   onRecordingFinished: (video) => console.log(video),
+   *   onRecordingError: (error) => console.error(error),
+   * })
    * await timeout(1000)
    * // Pause
    * await camera.current.pauseRecording()
@@ -208,26 +254,30 @@ export class Camera extends React.PureComponent<CameraProps> {
    * await camera.current.resumeRecording()
    * await timeout(2000)
    * // Stop
-   * const video = await camera.current.stopRecording()
+   * await camera.current.stopRecording()
    * ```
    */
   public async pauseRecording(): Promise<void> {
     try {
-      return await CameraModule.pauseRecording(this.handle);
+      return await CameraModule.pauseRecording(this.handle)
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
     }
   }
 
   /**
    * Resumes a currently paused video recording.
    *
-   * @throws {@linkcode CameraCaptureError} When any kind of error occured while resuming the video recording. Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
+   * @throws {@linkcode CameraCaptureError} When any kind of error occured while resuming the video recording.
+   * Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
    *
    * @example
    * ```ts
    * // Start
-   * await camera.current.startRecording()
+   * await camera.current.startRecording({
+   *   onRecordingFinished: (video) => console.log(video),
+   *   onRecordingError: (error) => console.error(error),
+   * })
    * await timeout(1000)
    * // Pause
    * await camera.current.pauseRecording()
@@ -236,48 +286,85 @@ export class Camera extends React.PureComponent<CameraProps> {
    * await camera.current.resumeRecording()
    * await timeout(2000)
    * // Stop
-   * const video = await camera.current.stopRecording()
+   * await camera.current.stopRecording()
    * ```
    */
   public async resumeRecording(): Promise<void> {
     try {
-      return await CameraModule.resumeRecording(this.handle);
+      return await CameraModule.resumeRecording(this.handle)
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
     }
   }
 
   /**
    * Stop the current video recording.
    *
-   * @throws {@linkcode CameraCaptureError} When any kind of error occured while stopping the video recording. Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
+   * @throws {@linkcode CameraCaptureError} When any kind of error occured while stopping the video recording.
+   * Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
    *
    * @example
    * ```ts
-   * await camera.current.startRecording()
+   * await camera.current.startRecording({
+   *   onRecordingFinished: (video) => console.log(video),
+   *   onRecordingError: (error) => console.error(error),
+   * })
    * setTimeout(async () => {
-   *  const video = await camera.current.stopRecording()
+   *   await camera.current.stopRecording()
    * }, 5000)
    * ```
    */
   public async stopRecording(): Promise<void> {
     try {
-      return await CameraModule.stopRecording(this.handle);
+      return await CameraModule.stopRecording(this.handle)
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
+    }
+  }
+
+  /**
+   * Cancel the current video recording. The temporary video file will be deleted,
+   * and the `startRecording`'s `onRecordingError` callback will be invoked with a `capture/recording-canceled` error.
+   *
+   * @throws {@linkcode CameraCaptureError} When any kind of error occured while canceling the video recording.
+   * Use the {@linkcode CameraCaptureError.code | code} property to get the actual error
+   *
+   * @example
+   * ```ts
+   * await camera.current.startRecording({
+   *   onRecordingFinished: (video) => console.log(video),
+   *   onRecordingError: (error) => {
+   *     if (error.code === 'capture/recording-canceled') {
+   *       // recording was canceled.
+   *     } else {
+   *       console.error(error)
+   *     }
+   *   },
+   * })
+   * setTimeout(async () => {
+   *   await camera.current.cancelRecording()
+   * }, 5000)
+   * ```
+   */
+  public async cancelRecording(): Promise<void> {
+    try {
+      return await CameraModule.cancelRecording(this.handle)
+    } catch (e) {
+      throw tryParseNativeCameraError(e)
     }
   }
 
   /**
    * Focus the camera to a specific point in the coordinate system.
-   * @param {Point} point The point to focus to. This should be relative to the Camera view's coordinate system,
-   * and expressed in Pixel on iOS and Points on Android.
+   * @param {Point} point The point to focus to. This should be relative
+   * to the Camera view's coordinate system and is expressed in points.
    *  * `(0, 0)` means **top left**.
    *  * `(CameraView.width, CameraView.height)` means **bottom right**.
    *
    * Make sure the value doesn't exceed the CameraView's dimensions.
    *
-   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while focussing. Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
+   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while focussing.
+   * Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
    * @example
    * ```ts
    * await camera.current.focus({
@@ -288,84 +375,74 @@ export class Camera extends React.PureComponent<CameraProps> {
    */
   public async focus(point: Point): Promise<void> {
     try {
-      return await CameraModule.focus(this.handle, point);
+      return await CameraModule.focus(this.handle, point)
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
     }
   }
   //#endregion
-
-  /**
-   * Get a list of video codecs the current camera supports for a given file type.  Returned values are ordered by efficiency (descending).
-   * @example
-   * ```ts
-   * const codecs = await camera.current.getAvailableVideoCodecs("mp4")
-   * ```
-   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while getting available video codecs. Use the {@linkcode ParameterError.code | code} property to get the actual error
-   * @platform iOS
-   */
-  public async getAvailableVideoCodecs(fileType?: VideoFileType): Promise<CameraVideoCodec[]> {
-    if (Platform.OS !== 'ios') return []; // no video codecs supported on other platforms.
-
-    try {
-      return await CameraModule.getAvailableVideoCodecs(this.handle, fileType);
-    } catch (e) {
-      throw tryParseNativeCameraError(e);
-    }
-  }
 
   //#region Static Functions (NativeModule)
   /**
    * Get a list of all available camera devices on the current phone.
    *
-   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while getting all available camera devices. Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
+   * If you use Hooks, use the `useCameraDevices(..)` hook instead.
+   *
+   * * For Camera Devices attached to the phone, it is safe to assume that this will never change.
+   * * For external Camera Devices (USB cameras, Mac continuity cameras, etc.) the available Camera Devices
+   * could change over time when the external Camera device gets plugged in or plugged out, so
+   * use {@link addCameraDevicesChangedListener | addCameraDevicesChangedListener(...)} to listen for such changes.
+   *
    * @example
    * ```ts
-   * const devices = await Camera.getAvailableCameraDevices()
-   * const filtered = devices.filter((d) => matchesMyExpectations(d))
-   * const sorted = devices.sort(sortDevicesByAmountOfCameras)
-   * return {
-   *   back: sorted.find((d) => d.position === "back"),
-   *   front: sorted.find((d) => d.position === "front")
-   * }
+   * const devices = Camera.getAvailableCameraDevices()
+   * const backCameras = devices.filter((d) => d.position === "back")
+   * const frontCameras = devices.filter((d) => d.position === "front")
    * ```
    */
-  public static async getAvailableCameraDevices(): Promise<CameraDevice[]> {
-    try {
-      return await CameraModule.getAvailableCameraDevices();
-    } catch (e) {
-      throw tryParseNativeCameraError(e);
-    }
+  public static getAvailableCameraDevices(): CameraDevice[] {
+    return CameraDevices.getAvailableCameraDevices()
+  }
+  /**
+   * Adds a listener that gets called everytime the Camera Devices change, for example
+   * when an external Camera Device (USB or continuity Camera) gets plugged in or plugged out.
+   *
+   * If you use Hooks, use the `useCameraDevices()` hook instead.
+   */
+  public static addCameraDevicesChangedListener(listener: (newDevices: CameraDevice[]) => void): EmitterSubscription {
+    return CameraDevices.addCameraDevicesChangedListener(listener)
   }
   /**
    * Gets the current Camera Permission Status. Check this before mounting the Camera to ensure
    * the user has permitted the app to use the camera.
    *
    * To actually prompt the user for camera permission, use {@linkcode Camera.requestCameraPermission | requestCameraPermission()}.
-   *
-   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while getting the current permission status. Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
    */
-  public static async getCameraPermissionStatus(): Promise<CameraPermissionStatus> {
-    try {
-      return await CameraModule.getCameraPermissionStatus();
-    } catch (e) {
-      throw tryParseNativeCameraError(e);
-    }
+  public static getCameraPermissionStatus(): CameraPermissionStatus {
+    return CameraModule.getCameraPermissionStatus()
   }
   /**
-   * Gets the current Microphone-Recording Permission Status. Check this before mounting the Camera to ensure
-   * the user has permitted the app to use the microphone.
+   * Gets the current Microphone-Recording Permission Status.
+   * Check this before enabling the `audio={...}` property to make sure the
+   * user has permitted the app to use the microphone.
    *
    * To actually prompt the user for microphone permission, use {@linkcode Camera.requestMicrophonePermission | requestMicrophonePermission()}.
-   *
-   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while getting the current permission status. Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
    */
-  public static async getMicrophonePermissionStatus(): Promise<CameraPermissionStatus> {
-    try {
-      return await CameraModule.getMicrophonePermissionStatus();
-    } catch (e) {
-      throw tryParseNativeCameraError(e);
-    }
+  public static getMicrophonePermissionStatus(): CameraPermissionStatus {
+    return CameraModule.getMicrophonePermissionStatus()
+  }
+  /**
+   * Gets the current Location Permission Status.
+   * Check this before enabling the `location={...}` property to make sure the
+   * the user has permitted the app to use the location.
+   *
+   * To actually prompt the user for location permission, use {@linkcode Camera.requestLocationPermission | requestLocationPermission()}.
+   *
+   * Note: This method will throw a `system/location-not-enabled` error if the Location APIs are not enabled at build-time.
+   * See [the "GPS Location Tags" documentation](https://react-native-vision-camera.com/docs/guides/location) for more information.
+   */
+  public static getLocationPermissionStatus(): CameraPermissionStatus {
+    return CameraModule.getLocationPermissionStatus()
   }
   /**
    * Shows a "request permission" alert to the user, and resolves with the new camera permission status.
@@ -373,13 +450,14 @@ export class Camera extends React.PureComponent<CameraProps> {
    * If the user has previously blocked the app from using the camera, the alert will not be shown
    * and `"denied"` will be returned.
    *
-   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while requesting permission. Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
+   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while requesting permission.
+   * Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
    */
   public static async requestCameraPermission(): Promise<CameraPermissionRequestResult> {
     try {
-      return await CameraModule.requestCameraPermission();
+      return await CameraModule.requestCameraPermission()
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
     }
   }
   /**
@@ -388,86 +466,149 @@ export class Camera extends React.PureComponent<CameraProps> {
    * If the user has previously blocked the app from using the microphone, the alert will not be shown
    * and `"denied"` will be returned.
    *
-   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while requesting permission. Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
+   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while requesting permission.
+   * Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
    */
   public static async requestMicrophonePermission(): Promise<CameraPermissionRequestResult> {
     try {
-      return await CameraModule.requestMicrophonePermission();
+      return await CameraModule.requestMicrophonePermission()
     } catch (e) {
-      throw tryParseNativeCameraError(e);
+      throw tryParseNativeCameraError(e)
+    }
+  }
+  /**
+   * Shows a "request permission" alert to the user, and resolves with the new location permission status.
+   *
+   * If the user has previously blocked the app from using the location, the alert will not be shown
+   * and `"denied"` will be returned.
+   *
+   * @throws {@linkcode CameraRuntimeError} When any kind of error occured while requesting permission.
+   * Use the {@linkcode CameraRuntimeError.code | code} property to get the actual error
+   */
+  public static async requestLocationPermission(): Promise<CameraPermissionRequestResult> {
+    try {
+      return await CameraModule.requestLocationPermission()
+    } catch (e) {
+      throw tryParseNativeCameraError(e)
     }
   }
   //#endregion
 
   //#region Events (Wrapped to maintain reference equality)
   private onError(event: NativeSyntheticEvent<OnErrorEvent>): void {
+    const error = event.nativeEvent
+    const cause = isErrorWithCause(error.cause) ? error.cause : undefined
+    // @ts-expect-error We're casting from unknown bridge types to TS unions, I expect it to hopefully work
+    const cameraError = new CameraRuntimeError(error.code, error.message, cause)
+
     if (this.props.onError != null) {
-      const error = event.nativeEvent;
-      const cause = isErrorWithCause(error.cause) ? error.cause : undefined;
-      this.props.onError(
-        // @ts-expect-error We're casting from unknown bridge types to TS unions, I expect it to hopefully work
-        new CameraRuntimeError(error.code, error.message, cause),
-      );
+      this.props.onError(cameraError)
+    } else {
+      // User didn't pass an `onError` handler, so just log it to console
+      console.error(cameraError)
     }
   }
 
   private onInitialized(): void {
-    this.props.onInitialized?.();
+    this.props.onInitialized?.()
   }
 
-  private onFrameProcessorPerformanceSuggestionAvailable(event: NativeSyntheticEvent<FrameProcessorPerformanceSuggestion>): void {
-    if (this.props.onFrameProcessorPerformanceSuggestionAvailable != null)
-      this.props.onFrameProcessorPerformanceSuggestionAvailable(event.nativeEvent);
+  private onStarted(): void {
+    this.props.onStarted?.()
+  }
+
+  private onStopped(): void {
+    this.props.onStopped?.()
+  }
+
+  private onPreviewStarted(): void {
+    this.props.onPreviewStarted?.()
+  }
+
+  private onPreviewStopped(): void {
+    this.props.onPreviewStopped?.()
+  }
+
+  private onShutter(event: NativeSyntheticEvent<OnShutterEvent>): void {
+    this.props.onShutter?.(event.nativeEvent)
+  }
+
+  private onOutputOrientationChanged({ nativeEvent: { outputOrientation } }: NativeSyntheticEvent<OutputOrientationChangedEvent>): void {
+    this.rotationHelper.outputOrientation = outputOrientation
+    this.props.onOutputOrientationChanged?.(outputOrientation)
+    this.maybeUpdateUIRotation()
+  }
+
+  private onPreviewOrientationChanged({ nativeEvent: { previewOrientation } }: NativeSyntheticEvent<PreviewOrientationChangedEvent>): void {
+    this.rotationHelper.previewOrientation = previewOrientation
+    this.props.onPreviewOrientationChanged?.(previewOrientation)
+    this.maybeUpdateUIRotation()
+
+    if (isSkiaFrameProcessor(this.props.frameProcessor)) {
+      // If we have a Skia Frame Processor, we need to update it's orientation so it knows how to render.
+      this.props.frameProcessor.previewOrientation.value = previewOrientation
+    }
+  }
+
+  private maybeUpdateUIRotation(): void {
+    const uiRotation = this.rotationHelper.uiRotation
+    if (uiRotation !== this.lastUIRotation) {
+      this.props.onUIRotationChanged?.(uiRotation)
+      this.lastUIRotation = uiRotation
+    }
   }
   //#endregion
 
-  //#region Lifecycle
-  /** @internal */
-  private assertFrameProcessorsEnabled(): void {
-    // @ts-expect-error JSI functions aren't typed
-    if (global.setFrameProcessor == null || global.unsetFrameProcessor == null) {
-      throw new CameraRuntimeError(
-        'frame-processor/unavailable',
-        'Frame Processors are not enabled. See https://react-native-vision-camera.com/docs/guides/troubleshooting',
-      );
-    }
+  private onCodeScanned(event: NativeSyntheticEvent<OnCodeScannedEvent>): void {
+    const codeScanner = this.props.codeScanner
+    if (codeScanner == null) return
+
+    codeScanner.onCodeScanned(event.nativeEvent.codes, event.nativeEvent.frame)
   }
 
+  //#region Lifecycle
   private setFrameProcessor(frameProcessor: (frame: Frame) => void): void {
-    this.assertFrameProcessorsEnabled();
-    // @ts-expect-error JSI functions aren't typed
-    global.setFrameProcessor(this.handle, frameProcessor);
+    VisionCameraProxy.setFrameProcessor(this.handle, frameProcessor)
   }
 
   private unsetFrameProcessor(): void {
-    this.assertFrameProcessorsEnabled();
-    // @ts-expect-error JSI functions aren't typed
-    global.unsetFrameProcessor(this.handle);
+    VisionCameraProxy.removeFrameProcessor(this.handle)
   }
 
   private onViewReady(): void {
-    this.isNativeViewMounted = true;
+    this.isNativeViewMounted = true
     if (this.props.frameProcessor != null) {
       // user passed a `frameProcessor` but we didn't set it yet because the native view was not mounted yet. set it now.
-      this.setFrameProcessor(this.props.frameProcessor);
-      this.lastFrameProcessor = this.props.frameProcessor;
+      this.setFrameProcessor(this.props.frameProcessor.frameProcessor)
+      this.lastFrameProcessor = this.props.frameProcessor.frameProcessor
     }
   }
-  componentDidMount(): void {
-    DeviceEventEmitter.addListener('brightnessEvent', function (e) {
-      // handle event and you will get a value in event object, you can log it here
-    });
+
+  private onAverageFpsChanged({ nativeEvent: { averageFps } }: NativeSyntheticEvent<AverageFpsChangedEvent>): void {
+    this.setState((state) => {
+      const averageFpsSamples = [...state.averageFpsSamples, averageFps]
+      while (averageFpsSamples.length >= MAX_BARS + 1) {
+        // we keep a maximum of 30 FPS samples in our history
+        averageFpsSamples.shift()
+      }
+
+      return {
+        ...state,
+        averageFpsSamples: averageFpsSamples,
+      }
+    })
   }
+
   /** @internal */
   componentDidUpdate(): void {
-    if (!this.isNativeViewMounted) return;
-    const frameProcessor = this.props.frameProcessor;
-    if (frameProcessor !== this.lastFrameProcessor) {
+    if (!this.isNativeViewMounted) return
+    const frameProcessor = this.props.frameProcessor
+    if (frameProcessor?.frameProcessor !== this.lastFrameProcessor) {
       // frameProcessor argument identity changed. Update native to reflect the change.
-      if (frameProcessor != null) this.setFrameProcessor(frameProcessor);
-      else this.unsetFrameProcessor();
+      if (frameProcessor != null) this.setFrameProcessor(frameProcessor.frameProcessor)
+      else this.unsetFrameProcessor()
 
-      this.lastFrameProcessor = frameProcessor;
+      this.lastFrameProcessor = frameProcessor?.frameProcessor
     }
   }
   //#endregion
@@ -475,28 +616,87 @@ export class Camera extends React.PureComponent<CameraProps> {
   /** @internal */
   public render(): React.ReactNode {
     // We remove the big `device` object from the props because we only need to pass `cameraId` to native.
-    const { device, frameProcessor, frameProcessorFps, enableFrameProcessor, ...props } = this.props;
+    const { device, frameProcessor, codeScanner, enableFpsGraph, fps, videoBitRate, ...props } = this.props
+
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (device == null) {
+      throw new CameraRuntimeError(
+        'device/no-device',
+        'Camera: `device` is null! Select a valid Camera device. See: https://mrousavy.com/react-native-vision-camera/docs/guides/devices',
+      )
+    }
+
+    const shouldEnableBufferCompression = props.video === true && frameProcessor == null
+    const torch = this.state.isRecordingWithFlash ? 'on' : props.torch
+    const isRenderingWithSkia = isSkiaFrameProcessor(frameProcessor)
+    const shouldBeMirrored = device.position === 'front'
+
+    // minFps/maxFps is either the fixed `fps` value, or a value from the [min, max] tuple
+    const minFps = fps == null ? undefined : typeof fps === 'number' ? fps : fps[0]
+    const maxFps = fps == null ? undefined : typeof fps === 'number' ? fps : fps[1]
+
+    // bitrate is number (override) or string (multiplier)
+    let bitRateMultiplier: number | undefined
+    let bitRateOverride: number | undefined
+    if (typeof videoBitRate === 'number') {
+      // If the user passed an absolute number as a bit-rate, we just use this as a full override.
+      bitRateOverride = videoBitRate
+    } else if (typeof videoBitRate === 'string' && videoBitRate !== 'normal') {
+      // If the user passed 'low'/'normal'/'high', we need to apply this as a multiplier to the native bitrate instead of absolutely setting it
+      bitRateMultiplier = this.getBitRateMultiplier(videoBitRate)
+    }
+
     return (
       <NativeCameraView
         {...props}
-        frameProcessorFps={frameProcessorFps === 'auto' ? -1 : frameProcessorFps}
         cameraId={device.id}
         ref={this.ref}
+        torch={torch}
+        minFps={minFps}
+        maxFps={maxFps}
+        isMirrored={props.isMirrored ?? shouldBeMirrored}
         onViewReady={this.onViewReady}
+        onAverageFpsChanged={enableFpsGraph ? this.onAverageFpsChanged : undefined}
         onInitialized={this.onInitialized}
+        onCodeScanned={this.onCodeScanned}
+        onStarted={this.onStarted}
+        onStopped={this.onStopped}
+        onPreviewStarted={this.onPreviewStarted}
+        onPreviewStopped={this.onPreviewStopped}
+        onShutter={this.onShutter}
+        videoBitRateMultiplier={bitRateMultiplier}
+        videoBitRateOverride={bitRateOverride}
+        onOutputOrientationChanged={this.onOutputOrientationChanged}
+        onPreviewOrientationChanged={this.onPreviewOrientationChanged}
         onError={this.onError}
-        onFrameProcessorPerformanceSuggestionAvailable={this.onFrameProcessorPerformanceSuggestionAvailable}
-        //enableFrameProcessor={frameProcessor != null}
-        enableFrameProcessor={this.props.enableFrameProcessor}
-      />
-    );
+        codeScannerOptions={codeScanner}
+        enableFrameProcessor={frameProcessor != null}
+        enableBufferCompression={props.enableBufferCompression ?? shouldEnableBufferCompression}
+        preview={isRenderingWithSkia ? false : (props.preview ?? true)}>
+        {isRenderingWithSkia && (
+          <SkiaCameraCanvas
+            style={styles.customPreviewView}
+            offscreenTextures={frameProcessor.offscreenTextures}
+            resizeMode={props.resizeMode}
+          />
+        )}
+        {enableFpsGraph && (
+          <FpsGraph style={styles.fpsGraph} averageFpsSamples={this.state.averageFpsSamples} targetMaxFps={props.format?.maxFps ?? 60} />
+        )}
+      </NativeCameraView>
+    )
   }
 }
 //#endregion
 
-// requireNativeComponent automatically resolves 'CameraView' to 'CameraViewManager'
-const NativeCameraView = requireNativeComponent<NativeCameraViewProps>(
-  'CameraView',
-  // @ts-expect-error because the type declarations are kinda wrong, no?
-  Camera,
-);
+const styles = StyleSheet.create({
+  customPreviewView: {
+    flex: 1,
+  },
+  fpsGraph: {
+    elevation: 1,
+    position: 'absolute',
+    left: 15,
+    top: 30,
+  },
+})

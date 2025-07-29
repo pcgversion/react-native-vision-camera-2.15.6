@@ -1,16 +1,32 @@
-import { useMemo } from 'react';
-import type { CameraDevice, CameraDeviceFormat } from '../CameraDevice';
-import { sortFormats } from '../utils/FormatFilter';
+import { useMemo } from 'react'
+import type { CameraDevice, CameraDeviceFormat } from '../types/CameraDevice'
+import type { FormatFilter } from '../devices/getCameraFormat'
+import { getCameraFormat } from '../devices/getCameraFormat'
 
 /**
- * Returns the best format for the given camera device.
+ * Get the best matching Camera format for the given device that satisfies your requirements using a sorting filter. By default, formats are sorted by highest to lowest resolution.
  *
- * This function tries to choose a format with the highest possible photo-capture resolution and best matching aspect ratio.
+ * The {@linkcode filters | filters} are ranked by priority, from highest to lowest.
+ * This means the first item you pass will have a higher priority than the second, and so on.
  *
- * @param {CameraDevice} device The Camera Device
- *
- * @returns The best matching format for the given camera device, or `undefined` if the camera device is `undefined`.
+ * @param device The Camera Device you're currently using
+ * @param filters The filters you want to use. The format that matches your filter the closest will be returned
+ * @returns The format that matches your filter the closest.
+ * @example
+ * ```ts
+ * const device = useCameraDevice(...)
+ * const format = useCameraFormat(device, [
+ *   { videoResolution: { width: 3048, height: 2160 } },
+ *   { fps: 60 }
+ * ])
+ * ```
  */
-export function useCameraFormat(device?: CameraDevice): CameraDeviceFormat | undefined {
-  return useMemo(() => device?.formats.sort(sortFormats)[0], [device?.formats]);
+export function useCameraFormat(device: CameraDevice | undefined, filters: FormatFilter[]): CameraDeviceFormat | undefined {
+  const format = useMemo(() => {
+    if (device == null) return undefined
+    return getCameraFormat(device, filters)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device, JSON.stringify(filters)])
+
+  return format
 }

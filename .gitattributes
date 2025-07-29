@@ -1,2 +1,4 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# iOS Headers are mainly Objective-C++
+ios/**/*.h linguist-language=Objective-C++
+# Android Headers are C++
+android/**/*.h linguist-language=C++

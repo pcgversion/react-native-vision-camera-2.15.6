@@ -1,57 +1,74 @@
-export type PermissionError = 'permission/microphone-permission-denied' | 'permission/camera-permission-denied';
+export type PermissionError = 'permission/microphone-permission-denied' | 'permission/camera-permission-denied'
 export type ParameterError =
   | 'parameter/invalid-parameter'
-  | 'parameter/unsupported-os'
   | 'parameter/unsupported-output'
   | 'parameter/unsupported-input'
-  | 'parameter/invalid-combination';
+  | 'parameter/invalid-combination'
 export type DeviceError =
   | 'device/configuration-error'
   | 'device/no-device'
   | 'device/invalid-device'
-  | 'device/parallel-video-processing-not-supported'
-  | 'device/torch-unavailable'
   | 'device/microphone-unavailable'
+  | 'device/pixel-format-not-supported'
   | 'device/low-light-boost-not-supported'
   | 'device/focus-not-supported'
-  | 'device/camera-not-available-on-simulator';
-export type FrameProcessorError = 'frame-processor/unavailable';
+  | 'device/camera-not-available-on-simulator'
+  | 'device/camera-already-in-use'
 export type FormatError =
   | 'format/invalid-fps'
-  | 'format/invalid-hdr'
-  | 'format/invalid-low-light-boost'
+  | 'format/invalid-video-hdr'
+  | 'format/photo-hdr-and-video-hdr-not-suppoted-simultaneously'
+  | 'format/low-light-boost-not-supported-with-hdr'
+  | 'format/invalid-video-stabilization-mode'
+  | 'format/incompatible-pixel-format-with-hdr-setting'
   | 'format/invalid-format'
-  | 'format/invalid-color-space'
-  | 'format/invalid-preset';
+  | 'format/format-required'
 export type SessionError =
   | 'session/camera-not-ready'
-  | 'session/audio-session-setup-failed'
   | 'session/audio-in-use-by-other-app'
-  | 'session/audio-session-failed-to-activate';
+  | 'session/no-outputs'
+  | 'session/audio-session-failed-to-activate'
+  | 'session/hardware-cost-too-high'
+  | 'session/invalid-output-configuration'
+export type CodeScannerError =
+  | 'code-scanner/not-compatible-with-outputs'
+  | 'code-scanner/code-type-not-supported'
+  | 'code-scanner/cannot-load-model'
 export type CaptureError =
-  | 'capture/invalid-photo-format'
-  | 'capture/encoder-error'
-  | 'capture/muxer-error'
   | 'capture/recording-in-progress'
+  | 'capture/recording-canceled'
   | 'capture/no-recording-in-progress'
   | 'capture/file-io-error'
+  | 'capture/invalid-path'
   | 'capture/create-temp-file-error'
-  | 'capture/invalid-video-options'
   | 'capture/create-recorder-error'
-  | 'capture/recorder-error'
-  | 'capture/no-valid-data'
-  | 'capture/inactive-source'
   | 'capture/insufficient-storage'
-  | 'capture/file-size-limit-reached'
-  | 'capture/invalid-photo-codec'
-  | 'capture/not-bound-error'
-  | 'capture/capture-type-not-supported'
   | 'capture/video-not-enabled'
   | 'capture/photo-not-enabled'
-  | 'capture/aborted'
-  | 'capture/unknown';
-export type SystemError = 'system/no-camera-manager' | 'system/view-not-found';
-export type UnknownError = 'unknown/unknown';
+  | 'capture/frame-invalid'
+  | 'capture/no-data'
+  | 'capture/recorder-error'
+  | 'capture/focus-canceled'
+  | 'capture/focus-requires-preview'
+  | 'capture/timed-out'
+  | 'capture/snapshot-failed'
+  | 'capture/snapshot-failed-preview-not-enabled'
+  | 'capture/image-data-access-error'
+  | 'capture/encoder-error'
+  | 'capture/invalid-image-type'
+  | 'capture/failed-writing-metadata'
+  | 'capture/unknown'
+export type SystemError =
+  | 'system/camera-module-not-found'
+  | 'system/camera-is-restricted'
+  | 'system/location-not-enabled'
+  | 'system/no-camera-manager'
+  | 'system/frame-processors-unavailable'
+  | 'system/recording-while-frame-processing-unavailable'
+  | 'system/view-not-found'
+  | 'system/max-cameras-in-use'
+  | 'system/do-not-disturb-bug'
+export type UnknownError = 'unknown/unknown'
 
 /**
  * Represents a JSON-style error cause. This contains native `NSError`/`Throwable` information, and can have recursive {@linkcode ErrorWithCause.cause | .cause} properties until the ultimate cause has been found.
@@ -63,89 +80,90 @@ export interface ErrorWithCause {
    * * iOS: `NSError.code`
    * * Android: N/A
    */
-  code?: number;
+  code?: number
   /**
    * The native error's domain.
    *
    * * iOS: `NSError.domain`
    * * Android: N/A
    */
-  domain?: string;
+  domain?: string
   /**
    * The native error description
    *
    * * iOS: `NSError.message`
    * * Android: `Throwable.message`
    */
-  message: string;
+  message: string
   /**
    * Optional additional details
    *
    * * iOS: `NSError.userInfo`
    * * Android: N/A
    */
-  details?: Record<string, unknown>;
+  details?: Record<string, unknown>
   /**
    * Optional Java stacktrace
    *
    * * iOS: N/A
    * * Android: `Throwable.stacktrace.toString()`
    */
-  stacktrace?: string;
+  stacktrace?: string
   /**
    * Optional additional cause for nested errors
    *
    * * iOS: N/A
    * * Android: `Throwable.cause`
    */
-  cause?: ErrorWithCause;
+  cause?: ErrorWithCause
 }
 
 type CameraErrorCode =
   | PermissionError
   | ParameterError
   | DeviceError
-  | FrameProcessorError
   | FormatError
   | SessionError
   | CaptureError
   | SystemError
-  | UnknownError;
+  | UnknownError
 
 /**
  * Represents any kind of error that occured in the {@linkcode Camera} View Module.
  */
 class CameraError<TCode extends CameraErrorCode> extends Error {
-  private readonly _code: TCode;
-  private readonly _message: string;
-  private readonly _cause?: ErrorWithCause;
+  private readonly _code: TCode
+  private readonly _message: string
+  private readonly _cause?: ErrorWithCause
 
   public get code(): TCode {
-    return this._code;
+    return this._code
   }
   public get message(): string {
-    return this._message;
+    return this._message
   }
   public get cause(): Error | undefined {
-    const c = this._cause;
-    if (c == null) return undefined;
-    return new Error(`[${c.code}]: ${c.message}`);
+    const c = this._cause
+    if (c == null) return undefined
+    return new Error(`[${c.code}]: ${c.message}`)
   }
 
   /**
    * @internal
    */
   constructor(code: TCode, message: string, cause?: ErrorWithCause) {
-    super(`[${code}]: ${message}${cause != null ? ` (Cause: ${cause.message})` : ''}`);
-    super.name = code;
-    super.message = message;
-    this._code = code;
-    this._message = message;
-    this._cause = cause;
+    super(`[${code}]: ${message}${cause != null ? ` (Cause: ${cause.message})` : ''}`)
+    super.name = code
+    super.message = message
+    this._code = code
+    this._message = message
+    this._cause = cause
   }
 
   public toString(): string {
-    return `[${this.code}]: ${this.message}`;
+    let string = `[${this.code}]: ${this.message}`
+    if (this._cause != null) string += ` (caused by ${JSON.stringify(this._cause)})`
+    return string
   }
 }
 
@@ -162,7 +180,7 @@ export class CameraCaptureError extends CameraError<CaptureError> {}
  * See the ["Camera Errors" documentation](https://react-native-vision-camera.com/docs/guides/errors) for more information about Camera Errors.
  */
 export class CameraRuntimeError extends CameraError<
-  PermissionError | ParameterError | DeviceError | FormatError | FrameProcessorError | SessionError | SystemError | UnknownError
+  PermissionError | ParameterError | DeviceError | FormatError | SessionError | SystemError | UnknownError
 > {}
 
 /**
@@ -178,7 +196,7 @@ export const isErrorWithCause = (error: unknown): error is ErrorWithCause =>
   // @ts-expect-error error is still unknown
   (typeof error.stacktrace === 'string' || error.stacktrace == null) &&
   // @ts-expect-error error is still unknown
-  (isErrorWithCause(error.cause) || error.cause == null);
+  (isErrorWithCause(error.cause) || error.cause == null)
 
 const isCameraErrorJson = (error: unknown): error is { code: string; message: string; cause?: ErrorWithCause } =>
   typeof error === 'object' &&
@@ -188,7 +206,7 @@ const isCameraErrorJson = (error: unknown): error is { code: string; message: st
   // @ts-expect-error error is still unknown
   typeof error.message === 'string' &&
   // @ts-expect-error error is still unknown
-  (typeof error.cause === 'object' || error.cause == null);
+  (typeof error.cause === 'object' || error.cause == null)
 
 /**
  * Tries to parse an error coming from native to a typed JS camera error.
@@ -199,16 +217,16 @@ const isCameraErrorJson = (error: unknown): error is { code: string; message: st
 export const tryParseNativeCameraError = <T>(nativeError: T): (CameraRuntimeError | CameraCaptureError) | T => {
   if (isCameraErrorJson(nativeError)) {
     if (nativeError.code.startsWith('capture')) {
-      return new CameraCaptureError(nativeError.code as CaptureError, nativeError.message, nativeError.cause);
+      return new CameraCaptureError(nativeError.code as CaptureError, nativeError.message, nativeError.cause)
     } else {
       return new CameraRuntimeError(
         // @ts-expect-error the code is string, we narrow it down to TS union.
         nativeError.code,
         nativeError.message,
         nativeError.cause,
-      );
+      )
     }
   } else {
-    return nativeError;
+    return nativeError
   }
-};
+}

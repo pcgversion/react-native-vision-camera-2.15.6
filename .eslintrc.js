@@ -12,7 +12,7 @@ module.exports = {
   },
   ignorePatterns: ['scripts', 'lib', 'docs', 'example', 'app.plugin.js'],
   plugins: ['@typescript-eslint'],
-  extends: ['plugin:@typescript-eslint/recommended', '@react-native-community'],
+  extends: ['plugin:@typescript-eslint/recommended', '@react-native', 'plugin:prettier/recommended'],
   rules: {
     // eslint
     semi: 'off',
@@ -73,19 +73,17 @@ module.exports = {
     ],
     '@typescript-eslint/no-non-null-assertion': 'error',
     '@typescript-eslint/no-unnecessary-condition': 'error',
+    '@typescript-eslint/consistent-type-imports': 'warn',
 
     // react hooks
     'react-hooks/exhaustive-deps': [
       'error',
       {
-        additionalHooks: '(useDerivedValue|useAnimatedStyle|useAnimatedProps|useWorkletCallback|useFrameProcessor)',
+        additionalHooks: '(useDerivedValue|useAnimatedStyle|useAnimatedProps|useWorkletCallback|useFrameProcessor|useSkiaFrameProcessor)',
       },
     ],
   },
   env: {
     node: true,
   },
-  globals: {
-    _log: 'readonly',
-  },
-};
+}
