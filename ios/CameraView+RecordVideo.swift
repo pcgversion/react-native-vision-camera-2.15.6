@@ -241,6 +241,41 @@ extension CameraView: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAud
         evaluateNewPerformanceSamples()
       }
     }
+
+    // Brightness measurement and auto-torch handling (run only for video frames)
+    if captureOutput is AVCaptureVideoDataOutput {
+      if let device = videoDeviceInput?.device {
+        let exposureSeconds = CMTimeGetSeconds(device.exposureDuration)
+        let iso = Double(device.iso)
+        let denom = exposureSeconds * iso
+        let brightnessDouble = brightness.doubleValue
+        if denom > 0 {
+          lightLevel = Int(brightnessDouble / denom)
+        }
+
+        // Emit brightness event to JS
+        if let bridge = manager?.bridge {
+          bridge.eventDispatcher().sendAppEvent(withName: "brightnessEvent", body:  lightLevel)
+        }
+
+        // Auto-torch logic (evaluate every 10 frames like Android)
+        brightnessFrameCounter += 1
+        if autoTorch && brightnessFrameCounter >= 10 {
+          brightnessFrameCounter = 0
+          if lightLevel <= minLightValue.intValue && (tempTorch as String) == "off" {
+            tempTorch = "on"
+            cameraQueue.async {
+              self.setTorchMode("on")
+            }
+          } else if lightLevel > maxLightValue.intValue && (tempTorch as String) == "on" {
+            tempTorch = "off"
+            cameraQueue.async {
+              self.setTorchMode("off")
+            }
+          }
+        }
+      }
+    }
   }
 
   private func evaluateNewPerformanceSamples() {

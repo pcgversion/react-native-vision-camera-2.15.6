@@ -79,6 +79,15 @@ public final class CameraView: UIView {
   @objc var torch = "off"
   @objc var zoom: NSNumber = 1.0 // in "factor"
   @objc var videoStabilizationMode: NSString?
+  // Brightness / auto-torch properties (mirrors Android behavior)
+  @objc var minLightValue: NSNumber = 11
+  @objc var maxLightValue: NSNumber = 100
+  @objc var brightness: NSNumber = 250
+  @objc var tempTorch: NSString = "off"
+  @objc var autoTorch: Bool = false
+
+  internal var lightLevel: Int = 50
+  internal var brightnessFrameCounter: Int = 0
   // events
   @objc var onInitialized: RCTDirectEventBlock?
   @objc var onError: RCTDirectEventBlock?
