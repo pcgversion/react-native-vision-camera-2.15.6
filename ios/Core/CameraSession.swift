@@ -508,7 +508,7 @@ final class CameraSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     // VisionLogger.log(level: .info, message: "LightValue: \(value)")
     // Emit event to React Native using DeviceEventEmitter
     if let bridge = manager?.bridge {
-        bridge.eventDispatcher().sendAppEvent(withName: "brightnessEvent", body: [value])
+        bridge.eventDispatcher().sendAppEvent(withName: "brightnessEvent", body: value)
     }
   }
 }

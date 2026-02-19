@@ -104,6 +104,7 @@ public final class CameraView: UIView, CameraSessionDelegate, PreviewViewDelegat
   // pragma MARK: Internal Properties
   var cameraSession = CameraSession()
   var previewView: PreviewView?
+  weak var manager: CameraViewManager?
   var isMounted = false
   private var currentConfigureCall: DispatchTime?
   private let fpsSampleCollector = FpsSampleCollector()
@@ -125,6 +126,10 @@ public final class CameraView: UIView, CameraSessionDelegate, PreviewViewDelegat
     cameraSession.delegate = self
     fpsSampleCollector.delegate = self
     updatePreview()
+  }
+  func setManager(_ manager: CameraViewManager) {
+    self.manager = manager
+    cameraSession.manager = manager
   }
 
   @available(*, unavailable)

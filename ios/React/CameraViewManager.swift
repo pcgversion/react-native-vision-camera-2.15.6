@@ -23,7 +23,9 @@ final class CameraViewManager: RCTViewManager {
   }
 
   override final func view() -> UIView! {
-    return CameraView()
+    let cameraView = CameraView()
+    cameraView.setManager(self)
+    return cameraView
   }
 
   // pragma MARK: React Functions
