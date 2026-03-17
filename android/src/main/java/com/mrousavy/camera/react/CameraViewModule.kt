@@ -66,14 +66,14 @@ class CameraViewModule(reactContext: ReactApplicationContext) : ReactContextBase
 
   private suspend fun findCameraView(viewId: Int): CameraView =
     runOnUiThreadAndWait {
-      Log.d(TAG, "Finding view $viewId...")
+      //Log.d(TAG, "Finding view $viewId...")
       val context = reactApplicationContext ?: throw Error("React Context was null!")
 
       val uiManagerType = if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) UIManagerType.FABRIC else UIManagerType.DEFAULT
       val uiManager = UIManagerHelper.getUIManager(context, uiManagerType) ?: throw Error("UIManager not found!")
 
       val view = uiManager.resolveView(viewId) as? CameraView ?: throw ViewNotFoundError(viewId)
-      Log.d(TAG, "Found view $viewId!")
+      //Log.d(TAG, "Found view $viewId!")
       return@runOnUiThreadAndWait view
     }
 

@@ -40,10 +40,10 @@ class VisionCameraProxy(private val reactContext: ReactApplicationContext) {
 
   @UiThread
   private fun findCameraViewById(viewId: Int): CameraView {
-    Log.d(TAG, "Finding view $viewId...")
+    //Log.d(TAG, "Finding view $viewId...")
     val ctx = mContext.get()
     val view = if (ctx != null) UIManagerHelper.getUIManager(ctx, viewId)?.resolveView(viewId) as CameraView? else null
-    Log.d(TAG, if (view != null) "Found view $viewId!" else "Couldn't find view $viewId!")
+    //Log.d(TAG, if (view != null) "Found view $viewId!" else "Couldn't find view $viewId!")
     return view ?: throw ViewNotFoundError(viewId)
   }
 
