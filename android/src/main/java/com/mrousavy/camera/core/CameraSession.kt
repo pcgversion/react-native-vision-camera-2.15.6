@@ -212,7 +212,8 @@ class CameraSession(internal val context: Context, internal val callback: Callba
       if(lastOrientation == 3 && outputRotation == 2)
         adjustedRotation = 3
       Log.d("CameraSession Test:", "${outputRotation} ${adjustedRotation} ${previewOutput?.targetRotation} ${lastOrientation}")
-      previewOutput?.targetRotation = adjustedRotation
+      // Only set photo and video outputs to outputRotation so the saved media is oriented correctly.
+      // Do NOT set previewOutput targetRotation here, as it should match the display/activity orientation.
       photoOutput?.targetRotation = outputRotation
       videoOutput?.targetRotation = outputRotation
     }

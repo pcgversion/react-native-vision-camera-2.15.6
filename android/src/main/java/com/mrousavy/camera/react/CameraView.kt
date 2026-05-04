@@ -480,6 +480,10 @@ class CameraView(context: Context) :
     invokeOnShutter(type)
   }
 
+  override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+    super.onSizeChanged(w, h, oldw, oldh)
+  }
+
   override fun onOutputOrientationChanged(outputOrientation: Orientation) {
     invokeOnOutputOrientationChanged(outputOrientation)
   }
